@@ -1,0 +1,15 @@
+{% extends "chores/base.html" %}
+
+{% block title %}Delete chore{% endblock %}
+
+{% block content %}
+    <h1>Delete chore</h1>
+
+    <p>Are you sure you want to delete &ldquo;{{ chore.name }}&rdquo;?</p>
+
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit">Delete</button>
+        <a href="{% url 'chores:chore_detail' chore.pk %}">Cancel</a>
+    </form>
+{% endblock %}

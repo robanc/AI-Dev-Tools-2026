@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}ChoreShare{% endblock %}</title>
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="{% url 'chores:chore_list' %}">Chores</a>
+            <a href="{% url 'chores:chore_create' %}">+ New chore</a>
+        </nav>
+        <hr>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

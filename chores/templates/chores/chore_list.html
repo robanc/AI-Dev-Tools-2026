@@ -1,0 +1,47 @@
+{% extends "chores/base.html" %}
+
+{% block title %}Chores{% endblock %}
+
+{% block content %}
+    <h1>Chores</h1>
+
+    <h2>Pending</h2>
+    {% if pending_chores %}
+        <ul>
+        {% for chore in pending_chores %}
+            <li>
+                <a href="{% url 'chores:chore_detail' chore.pk %}">{{ chore.name }}</a>
+                &mdash; Assignee: {{ chore.assignee|default:"Unassigned" }}
+                &mdash; Due: {{ chore.due_date|default:"No due date" }}
+                <form method="post" action="{% url 'chores:chore_toggle' chore.pk %}" style="display:inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{% url 'chores:chore_list' %}">
+                    <button type="submit">Mark complete</button>
+                </form>
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No pending chores.</p>
+    {% endif %}
+
+    <h2>Completed</h2>
+    {% if completed_chores %}
+        <ul>
+        {% for chore in completed_chores %}
+            <li>
+                <a href="{% url 'chores:chore_detail' chore.pk %}">{{ chore.name }}</a>
+                &mdash; Assignee: {{ chore.assignee|default:"Unassigned" }}
+                &mdash; Due: {{ chore.due_date|default:"No due date" }}
+                <form method="post" action="{% url 'chores:chore_toggle' chore.pk %}" style="display:inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{% url 'chores:chore_list' %}">
+                    <button type="submit">Reopen</button>
+                </form>
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No completed chores.</p>
+    {% endif %}
+{% endblock %}

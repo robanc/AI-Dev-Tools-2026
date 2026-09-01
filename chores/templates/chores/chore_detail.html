@@ -1,0 +1,34 @@
+{% extends "chores/base.html" %}
+
+{% block title %}{{ chore.name }}{% endblock %}
+
+{% block content %}
+    <h1>{{ chore.name }}</h1>
+
+    <p>
+        <a href="{% url 'chores:chore_update' chore.pk %}">Edit</a>
+        <a href="{% url 'chores:chore_delete' chore.pk %}">Delete</a>
+        <form method="post" action="{% url 'chores:chore_toggle' chore.pk %}" style="display:inline">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'chores:chore_detail' chore.pk %}">
+            <button type="submit">{% if chore.is_completed %}Reopen{% else %}Mark complete{% endif %}</button>
+        </form>
+    </p>
+
+    <dl>
+        <dt>Status</dt>
+        <dd>{% if chore.is_completed %}Completed{% else %}Pending{% endif %}</dd>
+
+        <dt>Assignee</dt>
+        <dd>{{ chore.assignee|default:"Unassigned" }}</dd>
+
+        <dt>Due date</dt>
+        <dd>{{ chore.due_date|default:"No due date" }}</dd>
+
+        <dt>Household</dt>
+        <dd>{{ chore.household }}</dd>
+
+        <dt>Description</dt>
+        <dd>{{ chore.description|default:"No description" }}</dd>
+    </dl>
+{% endblock %}
