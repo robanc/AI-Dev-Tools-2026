@@ -4,9 +4,9 @@ This project is the AI Dev Tools Zoomcamp Module 2 collaborative coding intervie
 
 ## Specification and scope
 
-- Read the root `product-spec.md` before making changes. Keep implementation aligned with its requirements and acceptance criteria.
+- Read the root `docs/spec.md` before making changes. Keep implementation aligned with its requirements and acceptance criteria.
 - Keep the MVP small. Prefer the simplest design that satisfies the specification and modular code with focused responsibilities over large files.
-- Do not implement features explicitly listed as out of scope in `product-spec.md`.
+- Do not implement features explicitly listed as out of scope in `docs/spec.md`.
 - Programming-language support and browser-side code execution remain pending decisions. Refine the specification against the homework requirements before implementing affected features; define acceptance criteria for browser-side execution if included.
 
 ## Project structure
@@ -15,7 +15,7 @@ This project is the AI Dev Tools Zoomcamp Module 2 collaborative coding intervie
 - `backend/`: FastAPI backend and backend tests.
 - `docs/`: supporting documentation.
 - `openapi.yaml`: root-level OpenAPI contract for the backend API.
-- `product-spec.md`: root-level product requirements, acceptance criteria, and scope.
+- `docs/spec.md`: root-level product requirements, acceptance criteria, and scope.
 
 ## Dependencies and service boundaries
 
@@ -27,7 +27,7 @@ This project is the AI Dev Tools Zoomcamp Module 2 collaborative coding intervie
 
 ## Testing and verification
 
-- Add tests for behavior described in `product-spec.md`, using its acceptance criteria to guide coverage. Keep frontend tests in `frontend/` and backend tests in `backend/`.
+- Add tests for behavior described in `docs/spec.md`, using its acceptance criteria to guide coverage. Keep frontend tests in `frontend/` and backend tests in `backend/`.
 - Cover role-specific editing permissions, session creation and access, synchronization, persistence, invalid links, connection state, and reconnection as those behaviors are implemented. Enforce permissions in the backend as well as the interface.
 - Verify real-time acceptance criteria with two browser windows connected to the running backend, including the specified one-second update target under normal network conditions.
 - Run tests and applicable verification commands regularly, especially after meaningful changes and before committing. Use configured `npm` scripts for frontend checks and `uv run` for backend checks; document commands once tooling exists.
