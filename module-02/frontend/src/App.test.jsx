@@ -6,6 +6,10 @@ import { javascriptLanguage } from '@codemirror/lang-javascript';
 import { pythonLanguage } from '@codemirror/lang-python';
 import App from './App.jsx';
 import { interviewService } from './services/index.js';
+vi.mock('./services/index.js', async () => ({
+  interviewService: (await import('./services/mockInterviewService.js')).mockInterviewService,
+  serviceMode: 'mock',
+}));
 beforeEach(() => { localStorage.clear(); window.location.hash = '#/'; });
 it('creates an interviewer room with empty fields and a copyable candidate link', async () => {
   const user = userEvent.setup();

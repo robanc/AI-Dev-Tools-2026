@@ -1,36 +1,111 @@
-# Pairroom frontend prototype
+# Pairroom frontend
 
-React + Vite + JavaScript, managed with npm. Run these commands from `frontend/` using Node.js 22.12+ (verified with Node 24):
+React, Vite and JavaScript, managed with npm. Use Node.js 22.12+.
 
-```sh
-npm install
-npm run dev
+## Run with the real backend
+
+In one terminal, start the backend (Python 3.12+ and uv required):
+
+```powershell
+cd backend
+uv sync
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
+```
+
+In another terminal:
+
+```powershell
+cd frontend
+npm ci
+$env:VITE_INTERVIEW_SERVICE = 'real'
+$env:VITE_API_BASE_URL = 'http://127.0.0.1:8000'
+npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
+```
+
+Alternatively, copy `.env.example` to `.env.local`; restart Vite after changing
+environment variables. `VITE_INTERVIEW_SERVICE` accepts `mock` (the default) or
+`real`. `VITE_API_BASE_URL` defaults to `http://127.0.0.1:8000` and must be an HTTP(S)
+base URL without query parameters, fragments, or credentials. Vite embeds these
+public settings at build time ([Vite environment documentation](https://vite.dev/guide/env-and-mode)). Never put role tokens in environment files.
+
+The backend allows frontend origins `http://localhost:5173` and
+`http://127.0.0.1:5173` by default. For another frontend origin, set the backend's
+`FRONTEND_ORIGINS` allowlist before starting it. For production preview on port
+4173, add that exact origin too. Use HTTPS/WSS outside local development.
+
+## Try both roles
+
+1. Open `http://127.0.0.1:5173`, create a session, and keep the interviewer URL.
+2. Copy the candidate link into a second browser window. One active window/tab
+   per role is supported; duplicate role connections are rejected.
+3. Edit the problem as interviewer and code from both roles, taking turns.
+   The candidate's problem is read-only. Check presence and updates without refresh.
+4. Wait for "Saved on server," then refresh. The latest confirmed text reloads.
+5. Disconnect the network: editing pauses after failure detection. Reconnection
+   reloads saved state before editing resumes. Unconfirmed edits produce a warning
+   and are not replayed automatically. "Reconnect" allows a manual retry.
+6. Alter the session/token in a link to check the invalid-link error.
+
+The backend currently stores sessions **in memory only**. Restarting it loses all
+sessions, tokens and saved text. "Saved on server" confirms an in-memory write,
+not restart durability. No SQLite or execution support is added here.
+
+## Mock mode
+
+Leave `VITE_INTERVIEW_SERVICE` unset or set it to `mock` to run without a backend.
+The original mock service is preserved. Its links only work on the same origin
+and browser profile; its saved status means localStorage persistence. Prototype
+connection controls remain available in mock mode. Mock and real sessions are
+separate; switching mode does not migrate links or content.
+
+## Service boundary
+
+Components import only `src/services/index.js`. Both adapters expose
+`createSession()` and `joinSession(id, token, onChange, onError)`; the optional
+error callback reports asynchronous terminal failures in real mode. Joining
+returns `updateProblem`, `updateCode`, `disconnect`, `reconnect`, and `close`
+immediately. The mock still reports invalid links synchronously.
+
+The real adapter implements [openapi.yaml](../openapi.yaml) and
+[realtime.md](../docs/realtime.md). Tokens from the URL hash go into HTTP bearer
+headers and the initial WebSocket authentication message, never query strings.
+GET supplies role/access; only an authenticated WebSocket snapshot enables
+editing. HTTP updates confirm saves; WebSocket events update text and presence.
+Per-field pending text, serialized writes and revision ordering prevent old
+responses from overwriting newer input. Writes flush within 150 ms when no prior
+same-field request is in flight. Network failures retry after 1, 2, 4, then at
+most 5 seconds; invalid links and protocol/permission failures stop automatic
+retries. HTTP and WebSocket setup time out after 10 seconds. Pings run every
+10 seconds, with five seconds allowed for pong. Cleanup aborts requests, closes
+sockets and removes timers/listeners.
+
+JavaScript/Python highlighting stays local, defaults to JavaScript and resets
+on refresh. It is not saved or synchronized and never executes code.
+
+## Checks
+
+```powershell
 npm test
 npm run build
 npm run preview
 ```
 
-`npm run test:watch` runs tests interactively. Commit `package-lock.json`; use `npm ci` for repeatable installation.
+Set the real-mode environment **before building** a production bundle to test it
+against the backend. `npm run test:watch` runs tests interactively. Unit tests
+cover both adapters, HTTP headers/bodies, save ordering, WebSocket events,
+reconnection, cleanup, async UI errors, role controls, and local highlighting.
+Mock UI tests explicitly choose the mock regardless of development environment.
 
-## Try the interview flow
+The live two-window browser check starts isolated frontend/backend servers on
+ports 5174/8001 and stops them afterward:
 
-1. Open the development URL and create a session. Both fields start empty.
-2. Copy the candidate invitation and open it in a second tab of the same browser profile, using the exact same origin. Keep the interviewer URL to return later.
-3. Edit the problem as interviewer; candidates can only read the problem. Both roles can edit the shared code. Observe updates and presence in the other tab. Use the Language selector for JavaScript or Python highlighting, with line numbers and Tab indentation (Escape then Tab exits).
-4. Wait for “Saved in this browser,” then refresh either tab to check restoration.
-5. Expand prototype connection controls to simulate disconnection. Editing pauses, the other tab updates presence, and reconnect restores saved content. Disconnect immediately after typing to see the unconfirmed-edit warning.
-6. Alter a credential in a link to check the invalid-session view.
+```powershell
+npx playwright install chromium
+npm run test:e2e
+```
 
-## Architecture and scope
-
-`src/services/index.js` is the single service entry point. Components never access persistence or networking directly. Its mock adapter exposes `createSession()` and `joinSession(id, token, onChange)`. Joining returns `updateProblem`, `updateCode`, `disconnect`, `reconnect`, and `close`. Snapshots contain content, role, connection/presence, save state, warnings, and the interviewer-only invitation link. Cleanup releases timers and event listeners.
-
-The mock uses localStorage, separate keys for each editable field, a 150 ms save debounce buffering problem and code independently, 200 ms synchronization polling, and one-second presence heartbeats with a three-second timeout. It validates role credentials and rejects unauthorized editing through its public methods. Only interviewers may update the problem; both roles may update code. One active tab per role is supported. Overlapping code edits use the last saved full text; there is no conflict merging, so take turns editing.
-
-This is a browser-local simulation: different browsers, profiles, or devices cannot join the same session. Clearing browser storage removes sessions. Credentials in localStorage are inspectable; mock permissions are not a security boundary. Saved status means browser persistence, not server confirmation. A future backend must enforce authorization and provide durable storage, real-time transport, and an OpenAPI-aligned adapter. Backend restart durability and real backend timing criteria cannot be verified at this stage.
-
-This frontend refinement supersedes the baseline specification's read-only interviewer code behavior: both roles edit code, while only the interviewer edits the problem. The root specification is unchanged for this frontend-only task.
-
-Highlighting uses `@codemirror/lang-javascript` and `@codemirror/lang-python`. The selector defaults to JavaScript and applies locally to each workspace view; it is not synchronized or persisted and resets on refresh. Switching languages preserves code and cursor selection and does not translate or execute code. No code execution is implemented; browser-side WASM execution is deferred to a later homework step. No backend, database, OpenAPI, Docker, or deployment files are included.
-
-Tests cover mock authorization, persistence, independent synchronized edits, bidirectional code updates, language selection and highlighting changes, presence, pending-save loss, reconnection, creation, clipboard behavior, role-based UI controls, storage failure, and invalid links. CodeMirror provides multiline editing, indentation, and syntax highlighting; editor behavior is also tested directly.
+If Microsoft Edge is already installed, skip the browser download and instead
+set `$env:PLAYWRIGHT_CHANNEL = 'msedge'` before `npm run test:e2e`. The test uses
+two independent browser contexts, checks propagation within one second in both
+directions, presence, refresh, offline/reconnect behavior, and invalid links.
+Generated results and screenshots in `test-results/` are ignored by git.

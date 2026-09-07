@@ -7,6 +7,7 @@
     "dev": "vite",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -21,6 +22,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.0",
