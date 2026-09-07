@@ -1,0 +1,303 @@
+openapi: 3.0.3
+info:
+  title: Pairroom Interview Session API
+  version: 0.1.0
+  description: |
+    Planned MVP contract derived from frontend/src/services/mockInterviewService.js
+    and docs/spec.md. No backend is implemented yet. Paths are relative to the
+    configured API origin. JSON is used for request and response bodies.
+
+    Possession of a private role-specific token grants session access without
+    accounts. Tokens are opaque, unguessable secrets, not JWTs. The frontend
+    extracts its token from #/session/{sessionId}/{token} and sends it in the
+    Authorization header. Role is determined by the server, never by a request field.
+    Use HTTPS outside local development. Credential-bearing responses must use
+    Cache-Control: no-store; credentials must not be logged.
+
+    HTTP writes persist before returning success and trigger WebSocket broadcasts.
+    Only the targeted field is replaced, atomically with a session revision increment;
+    the other field is preserved. Concurrent writes to the same field use server
+    commit order (last saved full text wins). There are no conditional writes,
+    merge operations, or revision history. See docs/realtime.md for WebSocket
+    authentication, snapshots, presence, ordering, and reconnect behavior.
+security:
+  - SessionToken: []
+paths:
+  /sessions:
+    post:
+      operationId: createSession
+      summary: Create an empty interview session
+      description: |
+        Implements createSession(). No request body is needed. Persist empty problem
+        and code, revision 0, timestamps, and distinct interviewer/candidate grants.
+        Return the interviewer hash link used by the existing frontend router.
+        The interviewer can retrieve the candidate link through GET after creation.
+      security: []
+      responses:
+        '201':
+          description: Session and both access grants persisted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedSession'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      operationId: getSession
+      summary: Access a session and read its latest saved state
+      description: |
+        Validates the role-specific token for joinSession(id, token, onChange)
+        and for subsequent reloads. Does not create participant presence; that
+        starts with an authenticated WebSocket. No separate join endpoint is needed.
+        Return a consistent snapshot of both fields, revision, and timestamps.
+      responses:
+        '200':
+          description: Authorized role and current persisted state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionAccess'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/InvalidLink'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sessions/{sessionId}/problem:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    put:
+      operationId: updateProblem
+      summary: Replace the problem statement as interviewer
+      description: |
+        Implements connection.updateProblem(value). Server must enforce interviewer
+        permission. Replaces only problem, including with an empty string to clear it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProblemUpdate'
+      responses:
+        '200':
+          $ref: '#/components/responses/SavedState'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/InvalidLink'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /sessions/{sessionId}/code:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    put:
+      operationId: updateCode
+      summary: Replace shared code as either role
+      description: |
+        Implements connection.updateCode(value). Replaces only code, including with
+        an empty string to clear it. Stores text without executing it. Highlighting
+        language is local view state and is not accepted or returned by this API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CodeUpdate'
+      responses:
+        '200':
+          $ref: '#/components/responses/SavedState'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/InvalidLink'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    SessionToken:
+      type: http
+      scheme: bearer
+      description: Opaque role-specific link token scoped to the requested session.
+  parameters:
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      description: Opaque session identifier from the frontend link; not an access credential.
+      schema:
+        type: string
+        minLength: 1
+  schemas:
+    SessionLink:
+      type: string
+      pattern: '^#/session/[^/]+/[^/]+$'
+      description: |
+        Frontend hash route #/session/{sessionId}/{token}, resolved against the
+        frontend page URL, not the API origin. Both segments must be URL-safe.
+      example: '#/session/example-session/example-secret-token'
+    CreatedSession:
+      type: object
+      additionalProperties: false
+      required: [interviewerLink]
+      properties:
+        interviewerLink:
+          $ref: '#/components/schemas/SessionLink'
+    SessionState:
+      type: object
+      additionalProperties: false
+      required: [id, problem, code, createdAt, updatedAt, revision]
+      properties:
+        id:
+          type: string
+          minLength: 1
+        problem:
+          type: string
+          description: Full plain-text problem; initially empty.
+        code:
+          type: string
+          description: Full shared code text; initially empty.
+        createdAt:
+          type: string
+          format: date-time
+          description: Server creation time in UTC.
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last committed write time in UTC; equals createdAt initially.
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            Session-wide monotonic content counter, initially 0, incremented once
+            per successful PUT (including unchanged text). Used to order snapshots,
+            not as a precondition. Presence changes do not increment it.
+    SessionAccess:
+      description: Only interviewer responses disclose the candidate invitation link.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [role, candidateLink, session]
+          properties:
+            role:
+              type: string
+              enum: [interviewer]
+            candidateLink:
+              $ref: '#/components/schemas/SessionLink'
+            session:
+              $ref: '#/components/schemas/SessionState'
+        - type: object
+          additionalProperties: false
+          required: [role, candidateLink, session]
+          properties:
+            role:
+              type: string
+              enum: [candidate]
+            candidateLink:
+              type: string
+              nullable: true
+              enum: [null]
+              description: Always null for candidates, matching the mock callback.
+            session:
+              $ref: '#/components/schemas/SessionState'
+    ProblemUpdate:
+      type: object
+      additionalProperties: false
+      required: [problem]
+      properties:
+        problem:
+          type: string
+          example: Return the sum of two numbers.
+    CodeUpdate:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          example: 'function sum(a, b) { return a + b; }'
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [unauthorized, invalid_link, forbidden, invalid_request, unsupported_media_type, internal_error]
+        message:
+          type: string
+          description: Human-readable explanation with no secret credentials or internal details.
+  responses:
+    SavedState:
+      description: |
+        Write durably committed; full snapshot at that commit. Confirmed content
+        survives backend restarts. Broadcast this same snapshot to both roles.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/SessionState'
+    Unauthorized:
+      description: Missing or malformed Authorization bearer header.
+      headers:
+        WWW-Authenticate:
+          description: Bearer authentication challenge.
+          schema:
+            type: string
+            enum: [Bearer]
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: unauthorized, message: 'Session not found or link invalid'}
+    InvalidLink:
+      description: |
+        Unknown session or token not valid for this session. Use the same response
+        for both cases, without disclosing whether the session exists.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: invalid_link, message: 'Session not found or link invalid'}
+    Forbidden:
+      description: Valid candidate grant cannot update the problem statement.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: forbidden, message: 'This role cannot edit that field.'}
+    InvalidRequest:
+      description: Malformed JSON, missing field, unknown field, or incorrect field type. No write committed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: invalid_request, message: 'Provide the required text field as a string.'}
+    UnsupportedMediaType:
+      description: Request Content-Type is not application/json.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: unsupported_media_type, message: 'Use application/json.'}
+    InternalError:
+      description: |
+        Server could not complete the operation. Do not show an unconfirmed write
+        as saved; reload authoritative state before resuming after a failure.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: {code: internal_error, message: 'Could not complete the request. Please try again.'}
