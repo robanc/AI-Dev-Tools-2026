@@ -2,6 +2,7 @@ import asyncio
 import json
 from contextlib import suppress
 
+from anyio import CancelScope
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .errors import APIError, INVALID_LINK
@@ -71,7 +72,7 @@ async def connect(socket: WebSocket, sessionId: str):
         await asyncio.gather(*(task for task in tasks if task not in done), return_exceptions=True)
         for task in done:
             task.result()
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     except APIError as exc:
         await fail(socket, exc.code, exc.message, 1008)
@@ -79,8 +80,10 @@ async def connect(socket: WebSocket, sessionId: str):
         # Never echo exception details, authentication messages, or tokens.
         await fail(socket, "internal_error", "Could not complete the request. Please try again.", 1011)
     finally:
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        if queue is not None:
-            await session.unsubscribe(role, queue)
+        # Finish local cleanup even when the ASGI connection scope is cancelled.
+        with CancelScope(shield=True):
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if queue is not None:
+                await session.unsubscribe(role, queue)

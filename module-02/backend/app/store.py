@@ -1,22 +1,24 @@
 import asyncio
-import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from uuid import uuid4
 
-from .errors import APIError, INVALID_LINK
+from .errors import APIError
+from .repository import SessionRepository
 from .schemas import Role, SessionState
 
 
 @dataclass(repr=False)
 class Session:
-    state: SessionState
-    tokens: dict[Role, str]
+    id: str
+    repository: SessionRepository
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     subscribers: dict[Role, asyncio.Queue] = field(default_factory=dict)
 
     def link(self, role: Role) -> str:
-        return f"#/session/{self.state.id}/{self.tokens[role]}"
+        return self.repository.link(self.id, role)
+
+    @property
+    def state(self) -> SessionState:
+        return self.repository.read(self.id)
 
     def broadcast(self, event: dict) -> None:
         # Called under lock; queueing never waits on a remote socket.
@@ -25,13 +27,9 @@ class Session:
 
     async def update(self, target: str, value: str) -> SessionState:
         async with self.lock:
-            self.state = self.state.model_copy(update={
-                target: value,
-                "revision": self.state.revision + 1,
-                "updatedAt": datetime.now(timezone.utc),
-            })
-            self.broadcast({"type": "session.updated", "session": self.state.model_dump(mode="json")})
-            return self.state
+            state = self.repository.update(self.id, target, value)
+            self.broadcast({"type": "session.updated", "session": state.model_dump(mode="json")})
+            return state
 
     async def subscribe(self, role: Role) -> asyncio.Queue:
         async with self.lock:
@@ -51,23 +49,21 @@ class Session:
                 self.broadcast({"type": "presence.updated", "otherConnected": False})
 
 
-class MemoryStore:
-    """One application/process owns this store; no restart durability."""
+class PersistentStore:
+    """Database content with process-local locks and ordered subscriptions."""
 
-    def __init__(self):
+    def __init__(self, repository: SessionRepository):
+        self.repository = repository
         self.sessions: dict[str, Session] = {}
 
     def create(self) -> Session:
-        now = datetime.now(timezone.utc)
-        state = SessionState(id=str(uuid4()), createdAt=now, updatedAt=now)
-        session = Session(state, {role: secrets.token_urlsafe(32) for role in ("interviewer", "candidate")})
-        self.sessions[state.id] = session
-        return session
+        return self._session(self.repository.create())
+
+    def _session(self, session_id: str) -> Session:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = Session(session_id, self.repository)
+        return self.sessions[session_id]
 
     def authorize(self, session_id: str, token: str) -> tuple[Session, Role]:
-        session = self.sessions.get(session_id)
-        if session:
-            for role, secret in session.tokens.items():
-                if secrets.compare_digest(secret.encode(), token.encode()):
-                    return session, role
-        raise APIError(404, "invalid_link", INVALID_LINK)
+        role = self.repository.authorize(session_id, token)
+        return self._session(session_id), role

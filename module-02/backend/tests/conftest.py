@@ -5,6 +5,18 @@ from app.main import create_app
 
 
 @pytest.fixture
+def database_url(tmp_path, monkeypatch):
+    url = "sqlite:///" + (tmp_path / "test.db").as_posix()
+    monkeypatch.setenv("DATABASE_URL", url)
+    return url
+
+
+@pytest.fixture(autouse=True)
+def isolated_database(database_url):
+    pass
+
+
+@pytest.fixture
 def client():
     with TestClient(create_app()) as client:
         yield client

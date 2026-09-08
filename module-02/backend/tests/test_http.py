@@ -44,7 +44,7 @@ def test_invalid_access(client, room):
         assert client.put(path + "/" + field, json={field: "x"}, headers=headers("wrong")).status_code == 404
 
 
-def test_permissions_and_memory_persistence(client, room):
+def test_permissions_and_persistence(client, room):
     path, tokens = room
     owner, candidate = (headers(tokens[role]) for role in ["interviewer", "candidate"])
     rejected = client.put(path + "/problem", json={"problem": "bad"}, headers=candidate)

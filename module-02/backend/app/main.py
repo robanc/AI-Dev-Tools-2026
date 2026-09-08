@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -6,12 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import realtime, routers
 from .errors import APIError, error_response
-from .store import MemoryStore
+from .database import Database
+from .repository import SessionRepository
+from .store import PersistentStore
 
 
-def create_app(*, auth_timeout: float = 5, heartbeat_timeout: float = 25) -> FastAPI:
-    app = FastAPI(title="Pairroom Interview Session API", version="0.1.0")
-    app.state.store = MemoryStore()
+def create_app(*, database_url: str | None = None, auth_timeout: float = 5, heartbeat_timeout: float = 25) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app):
+        database = Database(database_url)
+        try:
+            database.initialize()
+            app.state.store = PersistentStore(SessionRepository(database))
+            yield
+        finally:
+            database.close()
+
+    app = FastAPI(title="Pairroom Interview Session API", version="0.1.0", lifespan=lifespan)
     app.state.auth_timeout = auth_timeout
     app.state.heartbeat_timeout = heartbeat_timeout
     app.state.frontend_origins = [value.strip() for value in os.getenv(
