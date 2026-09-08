@@ -9,7 +9,10 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predev": "node scripts/prepare-pyodide.mjs",
+    "prebuild": "node scripts/prepare-pyodide.mjs",
+    "test:execution": "playwright test --config playwright.execution.config.js"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.0",
@@ -18,6 +21,7 @@
     "@codemirror/language": "^6.11.0",
     "@codemirror/state": "^6.5.0",
     "@codemirror/view": "^6.36.0",
+    "pyodide": "314.0.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

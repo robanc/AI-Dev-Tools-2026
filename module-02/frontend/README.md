@@ -46,9 +46,8 @@ The backend allows frontend origins `http://localhost:5173` and
    and are not replayed automatically. "Reconnect" allows a manual retry.
 6. Alter the session/token in a link to check the invalid-link error.
 
-The backend currently stores sessions **in memory only**. Restarting it loses all
-sessions, tokens and saved text. "Saved on server" confirms an in-memory write,
-not restart durability. No SQLite or execution support is added here.
+The backend persists sessions and role grants in SQLite; confirmed saves survive
+restarts while that database is retained. See the backend README for configuration.
 
 ## Mock mode
 
@@ -80,7 +79,49 @@ retries. HTTP and WebSocket setup time out after 10 seconds. Pings run every
 sockets and removes timers/listeners.
 
 JavaScript/Python highlighting stays local, defaults to JavaScript and resets
-on refresh. It is not saved or synchronized and never executes code.
+on refresh. Changing language does not save, synchronize, or execute anything.
+
+## Browser-only execution
+
+Either role can click **Run** beside the language selector. The runner uses the
+current editor text (including pending local edits) and selected language at click
+time. Receiving shared code never automatically runs it. Run does not save or send
+an execution request to FastAPI; ordinary collaboration saves still work as before.
+
+- JavaScript executes in a new dedicated browser worker, not in React. Console
+  log/info/warn/error/debug output is captured; top-level `await` is supported.
+  There is no `eval` or `Function` execution in the UI thread and no DOM access
+  from the worker. Unawaited background work is discarded when the run completes.
+- Python executes with the pinned official `pyodide` npm package (314.0.6), using
+  CPython compiled to WebAssembly inside a new worker. Python stdout and stderr
+  are captured, including `print()`. Standard-library code is supported; package
+  installation and interactive stdin are not part of this MVP (`input()` gets EOF).
+- Output and errors appear as plain text in **Output**, labeled with the run
+  language. They are local, not synchronized or persisted, and clear on the next
+  run or when leaving the room. Expressions alone are not automatically printed;
+  use `console.log(...)` or `print(...)`.
+- Run is disabled during startup/execution. **Stop** terminates the worker.
+  The page starts a **five-second execution deadline** after the worker is ready,
+  and terminates it even if code loops forever. Python startup has a separate
+  **30-second deadline**. Startup/runtime errors and timeouts re-enable Run.
+  Navigating away also cancels execution; each new run starts with fresh globals.
+- Output is buffered until completion, capped at 20,000 characters and marked if
+  truncated. Stopping or timing out loses the unfinished run's buffered output.
+  Browser background-tab throttling can delay the page's timeout callback.
+
+`npm run dev` and `npm run build` copy the runtime assets from the installed
+package into ignored `public/pyodide/`; Vite includes them in `dist/pyodide/`.
+Deploy the complete `dist` directory, including these roughly 14 MB of assets.
+No runtime CDN is required. The first Python run may take longer to load/compile
+WASM. See [Pyodide usage](https://pyodide.org/en/stable/usage/index.html).
+
+Workers isolate computation from React and the DOM; they are **not a hardened
+sandbox for malicious code**, a network firewall, or a strict memory quota.
+Only run code you trust. No session credentials are passed to the runner, but
+normal worker APIs (including networking and origin storage) remain available.
+A deployment CSP must permit the worker, runtime modules, WASM and dynamic
+JavaScript compilation within the worker; the React page itself does not need
+dynamic compilation permission.
 
 ## Checks
 
@@ -93,7 +134,10 @@ npm run preview
 Set the real-mode environment **before building** a production bundle to test it
 against the backend. `npm run test:watch` runs tests interactively. Unit tests
 cover both adapters, HTTP headers/bodies, save ordering, WebSocket events,
-reconnection, cleanup, async UI errors, role controls, and local highlighting.
+reconnection, cleanup, async UI errors, role controls, local highlighting, Run/Stop
+states, output/error rendering, timeouts, and cleanup. Worker tests execute real
+JavaScript and Pyodide/WASM in Node worker threads through a small browser-message
+adapter; browser tests additionally verify the actual production worker/assets.
 Mock UI tests explicitly choose the mock regardless of development environment.
 
 The live two-window browser check starts isolated frontend/backend servers on
@@ -109,3 +153,15 @@ set `$env:PLAYWRIGHT_CHANNEL = 'msedge'` before `npm run test:e2e`. The test use
 two independent browser contexts, checks propagation within one second in both
 directions, presence, refresh, offline/reconnect behavior, and invalid links.
 Generated results and screenshots in `test-results/` are ignored by git.
+
+Browser execution tests run the production frontend in mock mode with no backend:
+
+```powershell
+npm run build
+$env:PLAYWRIGHT_CHANNEL = 'msedge' # Optional, if Edge is installed
+npm run test:execution
+```
+
+These check JavaScript/Python output, errors, infinite-loop termination and a
+responsive page, fresh runs, and output remaining local between the two roles.
+No lint script is configured; the production build checks JSX/import resolution.

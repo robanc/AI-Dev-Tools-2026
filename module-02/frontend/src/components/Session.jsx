@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { interviewService, serviceMode } from '../services/index.js';
-import CodeEditor from './CodeEditor.jsx';
+import CodeWorkspace from './CodeWorkspace.jsx';
 
 export default function Session({ id, token }) {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
-  const [language, setLanguage] = useState('javascript');
   const [copyStatus, setCopyStatus] = useState('');
   const connection = useRef(null);
   useEffect(() => {
@@ -36,7 +35,7 @@ export default function Session({ id, token }) {
     {state.warning && <p className="notice" role="alert">{state.warning}</p>}
     <div className="workspace">
       <section className="panel"><div className="panel-heading"><h2>Problem statement</h2><span>{interviewer ? 'You edit' : 'Read only'}</span></div><label className="sr-only" htmlFor="problem">Problem statement</label><textarea id="problem" value={state.problem} readOnly={!interviewer || !state.connected} placeholder={interviewer ? 'Describe the problem, inputs, and expected output…' : 'The interviewer hasn’t added a problem yet.'} onChange={event => edit('updateProblem', event.target.value)} /><div className="panel-footer">Plain text · {interviewer ? 'Shared with your candidate' : 'Updated by your interviewer'}</div></section>
-      <section className="panel"><div className="panel-heading"><h2>Shared code</h2><label className="language-selector">Language <select value={language} onChange={event => setLanguage(event.target.value)}><option value="javascript">JavaScript</option><option value="python">Python</option></select></label><span>Both roles edit</span></div><CodeEditor value={state.code} language={language} editable={state.connected} onChange={value => edit('updateCode', value)} /><div className="panel-footer">Tab to indent · Escape, then Tab to leave the editor</div></section>
+      <CodeWorkspace code={state.code} connected={state.connected} onChange={value => edit('updateCode', value)} />
     </div>
     {serviceMode === 'mock' ? <details className="prototype"><summary>Prototype connection controls</summary><p>Sessions are shared between tabs in this browser on this site. Use an external call for conversation.</p><button className="secondary" onClick={() => state.connected ? connection.current.disconnect() : connection.current.reconnect()}>{state.connected ? 'Simulate disconnection' : 'Reconnect'}</button></details>
       : !state.connected && <button className="secondary" onClick={() => connection.current.reconnect()}>Reconnect</button>}

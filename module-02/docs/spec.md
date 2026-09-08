@@ -1,8 +1,8 @@
 # Collaborative Coding Interview — Product Specification
 
-Version: 0.2
+Version: 0.3
 
-Status: Refined Module 2 MVP scope; JavaScript and Python highlighting supported; browser-side execution planned for a later homework step.
+Status: Module 2 MVP with JavaScript/Python highlighting and explicit browser-only execution.
 
 Context: AI Dev Tools Zoomcamp, Module 2
 
@@ -14,7 +14,7 @@ Both participants see the same problem and code, with changes synchronized in re
 
 This specification defines a small course-project MVP. It does not prescribe an implementation stack.
 
-The current verified implementation is a frontend prototype using a browser-local mock service. Backend persistence, cross-browser access, and real backend timing remain target requirements, not implemented or verified capabilities. The mock shares saved text between tabs on the same origin and browser profile; its saved status means local browser persistence, not server confirmation.
+The frontend supports the real FastAPI backend with SQLite persistence and an optional browser-local mock service. The mock shares saved text between tabs on the same origin and browser profile; its saved status means local browser persistence, not server confirmation. Browser-only execution is independent of the selected collaboration service.
 
 ## 2. Goals
 
@@ -59,7 +59,9 @@ The current verified implementation is a frontend prototype using a browser-loca
 - **FR-07:** Only the interviewer can edit the plain-text problem statement. The candidate has read-only access to it.
 - **FR-08:** Both interviewer and candidate can edit the shared code while connected. Overlapping edits use the last saved full text; automatic conflict merging is not required.
 - **FR-09:** The editor supports multiline text, indentation, line numbers, and syntax highlighting for JavaScript and Python. Both roles have a small language selector offering only these two languages, defaulting to JavaScript. Selection changes highlighting without replacing code or cursor selection. It is local to each workspace view, is not synchronized or persisted, and resets on refresh.
-- **FR-10:** The current MVP stores, displays, and synchronizes code as text without executing it. Browser-side WASM execution is planned for a later homework step; its runtime, supported execution languages, behavior, and acceptance criteria must be defined before implementation. Server-side execution remains out of scope.
+- **FR-10:** Either role may explicitly Run the current editor text locally as JavaScript in a dedicated worker or Python using Pyodide/WebAssembly in a dedicated worker. Never execute on typing, receipt of shared edits, refresh, or language change. Execution sends no code to the backend for execution and receives no session credentials. Output and language remain local. Server-side execution remains out of scope.
+- **FR-21:** Show local stdout/console output, stderr and runtime errors as plain text in a labeled output panel. Each run starts fresh, replaces previous output and uses a snapshot of code/language at click time. Cap captured output at 20,000 characters.
+- **FR-22:** Disable Run while loading/running; allow Stop. Terminate the worker after five seconds of execution, with a separate 30-second startup deadline. Stop, timeout and leaving the room release worker resources. Runtime errors and infinite loops must not freeze React or interrupt collaboration. Interactive stdin, package installation and background tasks after completion are unsupported.
 
 ### Real-time synchronization
 
@@ -92,12 +94,14 @@ The current verified implementation is a frontend prototype using a browser-loca
 | AC-07 | A participant disconnects. | Their interface indicates the disconnection and disables editing; the other participant's presence indicator updates after connection loss is detected. |
 | AC-08 | A participant reconnects. | The latest saved state loads, presence updates, and authorized editing becomes available. |
 | AC-09 | A participant opens an invalid link. | A clear "Session not found or link invalid" message appears. |
-| AC-10 | Either participant enters code as editor text. | The application displays, saves, and synchronizes the text without executing it. No execution controls are present in this step. |
+| AC-10 | Either participant enters or receives code as editor text. | The application displays, saves, and synchronizes text without automatically executing it; only an explicit Run starts execution. |
 | AC-11 | Either role uses the editor with JavaScript or Python selected; verify both languages. | Multiline editing, indentation, line numbers, and highlighting for the selected language are available. |
 | AC-12 | Either role switches the language selector between JavaScript and Python. | Only these two options are offered. Highlighting changes while code and cursor selection are preserved; the other participant's selection is unaffected. A new view or refresh defaults to JavaScript. |
 | AC-13 | Interviewer edits both problem and code before pending changes save. | Both fields are saved and synchronized without one pending field discarding the other; saved content is restored on reopening. |
-
-Browser-side WASM execution is planned for a later homework step. Define its acceptance criteria before implementing it; syntax-highlighting support does not imply execution support.
+| AC-14 | Either role runs JavaScript or Python. | Execute the current editor snapshot in a worker; console.log/print output appears locally. Python uses Pyodide/WASM; no backend execution request occurs. |
+| AC-15 | Code throws or Python raises an exception. | Show the error and preceding output as plain text; the application remains usable and another run succeeds. |
+| AC-16 | Code loops forever, or runtime startup stalls. | Main UI stays responsive; terminate execution after five seconds or startup after 30 seconds, show a clear message and re-enable Run. Stop also terminates; leaving the room cleans up. |
+| AC-17 | Code is running while edits or language changes occur. | Disable duplicate runs; execute the captured snapshot without modifying shared code or save state. Output is labeled with the run language and stays in this view only. |
 
 ## 7. Non-goals / out-of-scope features
 
@@ -113,7 +117,7 @@ Browser-side WASM execution is planned for a later homework step. Define its acc
 - Offline editing and merging conflicting edits.
 - Session dashboards, formal completion workflows, and production-scale guarantees.
 
-JavaScript and Python syntax highlighting are in scope. Browser-side WASM execution is deferred to a later homework step, not permanently excluded. Server-side execution remains out of scope.
+JavaScript and Python highlighting and explicit browser-only execution are in scope. Server-side execution remains out of scope.
 
 ## 8. Main application screens
 
@@ -135,7 +139,7 @@ JavaScript and Python syntax highlighting are in scope. Browser-side WASM execut
 - Editable shared code editor with a JavaScript/Python language selector.
 - Connection, interviewer presence, and save status.
 
-The two session screens can share one layout with role-based controls. Invalid links use a simple error view. The language selector is available to both roles. No execution controls are included in this step.
+The two session screens can share one layout with role-based controls. Invalid links use a simple error view. The language selector is available to both roles. Both roles have Run/Stop controls and a local output panel.
 
 ## 9. Main data/entities
 
@@ -145,7 +149,7 @@ The two session screens can share one layout with role-based controls. Invalid l
 | Session access grant | Session reference, role, secret link credential | Persisted securely |
 | Participant connection | Session reference, role, connection status, last activity | Temporary |
 
-The session is the central record. Separate user, question, and code-file entities are unnecessary for this version. The selected highlighting language is local view state, not persisted session data. Execution-related data will be defined for the later browser-side execution step.
+The session is the central record. Separate user, question, and code-file entities are unnecessary for this version. The selected highlighting language is local view state, not persisted session data. Execution output and status are transient local view state, never persisted or synchronized.
 
 ## 10. High-level frontend/backend interactions
 
@@ -156,7 +160,7 @@ The session is the central record. Separate user, question, and code-file entiti
 5. **Save and broadcast:** The backend validates the role, persists the update, confirms it to the sender, and broadcasts it to the other participant.
 6. **Reconnect:** The frontend reconnects and retrieves the latest server state before resuming edits.
 
-The backend is the authoritative source of saved content. The exact framework, database, and real-time transport remain implementation decisions. For the planned later browser-side execution step, output and any synchronization requirements must be specified before implementation; shared execution output is not assumed.
+The backend is the authoritative source of saved content. The exact framework, database, and real-time transport remain implementation decisions. Browser execution is independent of backend interactions; execution output is never synchronized.
 
 ## 11. Assumptions and constraints
 
@@ -169,7 +173,7 @@ The backend is the authoritative source of saved content. The exact framework, d
 - Sessions remain available while their records exist; automatic expiration is deferred.
 - Participants communicate through an external service.
 - Unsaved edits may be lost during a connection failure; confirmed saved edits must survive refreshes and backend restarts.
-- Highlighting is limited to JavaScript and Python. Browser-side WASM execution is planned for a later step, with execution languages and runtime behavior still to be specified.
+- Highlighting and local execution support JavaScript and Python. Workers protect UI responsiveness and DOM access, but are not a hardened sandbox for malicious code or a strict memory quota. Only run code you trust; runtime assets are served by the frontend.
 
 ## 12. Scope decisions and remaining questions
 
@@ -177,7 +181,7 @@ The backend is the authoritative source of saved content. The exact framework, d
 | --- | --- | --- |
 | Editing responsibilities | Only the interviewer edits the problem; both roles may edit shared code. | Last saved full text wins for overlapping edits; no conflict-resolution system is required. |
 | Programming languages | JavaScript and Python syntax highlighting. | Local selector defaults to JavaScript; selection is not synchronized or persisted. |
-| Browser-side execution | WASM execution planned for a later homework step; not implemented now. | Define runtime, execution languages, trigger, result/error display, and acceptance criteria before implementation. |
+| Browser-side execution | Explicit Run; JavaScript worker and Python Pyodide/WASM worker. | Local output/errors, five-second execution timeout, 30-second startup timeout; no backend execution or output synchronization. |
 | Server-side execution | Out of scope. | No server execution or compilation infrastructure. |
 | Participant identity | Private role-specific links without accounts. | Links establish access rather than verified identity. |
 | Synchronized state | Problem text, code text, and presence. | Shared cursors, selections, and scroll positions are unnecessary for the MVP. |
