@@ -1,5 +1,10 @@
 # Pairroom backend
 
+To start both services together, follow the [root README](../README.md) dependency
+setup and run `npm run dev` from `module-02`. It runs the same backend command
+from this directory, preserving the default SQLite path. Ctrl+C stops both
+services. For backend-only development, use the commands below.
+
 Python 3.12+ and uv are required. From this repository:
 
 ```powershell

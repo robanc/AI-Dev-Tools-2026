@@ -4,6 +4,11 @@ React, Vite and JavaScript, managed with npm. Use Node.js 22.12+.
 
 ## Run with the real backend
 
+For a single-terminal startup, install dependencies as described in the
+[root README](../README.md), then run `npm run dev` from `module-02`.
+It starts both services and sets real-backend mode automatically. Ctrl+C stops
+both. The separate-terminal commands below remain available.
+
 In one terminal, start the backend (Python 3.12+ and uv required):
 
 ```powershell

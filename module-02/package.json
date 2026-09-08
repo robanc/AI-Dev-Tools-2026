@@ -1,0 +1,14 @@
+{
+  "name": "pairroom-dev",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others --names backend,frontend \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log",
+    "dev:frontend": "cross-env VITE_INTERVIEW_SERVICE=real VITE_API_BASE_URL=http://127.0.0.1:8000 npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0"
+  }
+}
