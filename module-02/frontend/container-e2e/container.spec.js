@@ -1,0 +1,30 @@
+import { test, expect } from '@playwright/test';
+
+test('container serves API, navigation and local JavaScript/Pyodide workers', async ({ page, request }, testInfo) => {
+  expect((await request.get('/')).status()).toBe(200);
+  expect((await request.get('/docs')).status()).toBe(200);
+  expect((await request.get('/openapi.json')).status()).toBe(200);
+  expect((await request.post('/sessions')).status()).toBe(201);
+  expect((await request.get('/assets/missing.js')).status()).toBe(404);
+  await page.goto('/navigation-check');
+  await expect(page.getByRole('button', { name: /Create session/ })).toBeVisible();
+  await page.goto('/');
+  await page.getByRole('button', { name: /Create session/ }).click();
+  const editor = page.getByRole('textbox', { name: 'Shared code' });
+  const output = page.getByRole('region', { name: 'Execution output' });
+  await expect(editor).toHaveAttribute('aria-readonly', 'false');
+  await editor.fill('console.log("Container JavaScript", 2 + 3)');
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(output).toContainText('Container JavaScript 5');
+  await page.getByRole('combobox', { name: 'Language' }).selectOption('python');
+  await editor.fill('print("Container Python", 2 + 3)');
+  const wasmResponse = page.waitForResponse(response => response.url().endsWith('/pyodide/pyodide.asm.wasm'));
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  const wasm = await wasmResponse;
+  expect(wasm.status()).toBe(200);
+  expect(wasm.headers()['content-type']).toBe('application/wasm');
+  expect(new URL(wasm.url()).origin).toBe(new URL(page.url()).origin);
+  await expect(output).toContainText('Container Python 5', { timeout: 30000 });
+  await expect(page.getByText('Saved on server', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('container.png'), fullPage: true });
+});

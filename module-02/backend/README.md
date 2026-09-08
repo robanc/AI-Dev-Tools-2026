@@ -5,6 +5,12 @@ setup and run `npm run dev` from `module-02`. It runs the same backend command
 from this directory, preserving the default SQLite path. Ctrl+C stops both
 services. For backend-only development, use the commands below.
 
+For production packaging, see the [root Docker instructions](../README.md#docker-one-container-for-frontend-and-backend).
+`FRONTEND_DIST` optionally points to a Vite build directory with `index.html`.
+When set, FastAPI serves that build after API/WebSocket routing; missing assets
+and API paths do not fall back to HTML. The Docker image sets this variable and
+uses `/data/pairroom.db` for SQLite. Local backend-only startup remains unchanged.
+
 Python 3.12+ and uv are required. From this repository:
 
 ```powershell

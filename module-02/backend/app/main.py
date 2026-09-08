@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import realtime, routers
 from .errors import APIError, error_response
+from .frontend import serve_frontend
 from .database import Database
 from .repository import SessionRepository
 from .store import PersistentStore
@@ -52,6 +53,8 @@ def create_app(*, database_url: str | None = None, auth_timeout: float = 5, hear
 
     app.include_router(routers.router)
     app.include_router(realtime.router)
+    if directory := os.getenv("FRONTEND_DIST"):
+        serve_frontend(app, directory)
     return app
 
 

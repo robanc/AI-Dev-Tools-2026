@@ -33,6 +33,11 @@ environment variables. `VITE_INTERVIEW_SERVICE` accepts `mock` (the default) or
 base URL without query parameters, fragments, or credentials. Vite embeds these
 public settings at build time ([Vite environment documentation](https://vite.dev/guide/env-and-mode)). Never put role tokens in environment files.
 
+The [single-container Docker build](../README.md#docker-one-container-for-frontend-and-backend)
+sets `VITE_API_BASE_URL=same-origin`, which uses the page's origin for HTTP and
+WebSockets. This build-time option avoids hardcoding localhost into a deployed
+bundle; the regular development command still uses its explicit backend URL.
+
 The backend allows frontend origins `http://localhost:5173` and
 `http://127.0.0.1:5173` by default. For another frontend origin, set the backend's
 `FRONTEND_ORIGINS` allowlist before starting it. For production preview on port

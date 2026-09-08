@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "predev": "node scripts/prepare-pyodide.mjs",
     "prebuild": "node scripts/prepare-pyodide.mjs",
-    "test:execution": "playwright test --config playwright.execution.config.js"
+    "test:execution": "playwright test --config playwright.execution.config.js",
+    "test:container": "playwright test --config playwright.container.config.js"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.0",
