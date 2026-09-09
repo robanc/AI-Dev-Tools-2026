@@ -1,0 +1,138 @@
+openapi: 3.1.0
+info:
+  title: TaskLane API
+  version: 0.1.0
+  description: Single-board API with persistent database storage.
+servers:
+  - url: http://127.0.0.1:8000
+paths:
+  /api/tasks:
+    get:
+      operationId: listTasks
+      summary: List all tasks, newest first
+      responses:
+        '200':
+          description: All tasks with full details
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Task' }
+    post:
+      operationId: createTask
+      summary: Create a task in To Do
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskCreate' }
+      responses:
+        '201':
+          description: Created task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    patch:
+      operationId: updateTask
+      summary: Update supplied fields only
+      description: Omitted fields are unchanged. An empty object is a no-op. Explicit nulls and unknown fields are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskUpdate' }
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      operationId: deleteTask
+      summary: Permanently delete a task
+      responses:
+        '204': { description: Deleted successfully; no response body }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+components:
+  schemas:
+    Title:
+      type: string
+      minLength: 1
+      maxLength: 200
+      pattern: '\S'
+      description: Surrounding whitespace is trimmed before length validation and storage.
+    Description:
+      type: string
+      maxLength: 2000
+      description: Plain text; whitespace is preserved. Use an empty string to clear it.
+    Status:
+      type: string
+      enum: [todo, in_progress, done]
+    TaskCreate:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: { $ref: '#/components/schemas/Title' }
+        description:
+          $ref: '#/components/schemas/Description'
+          default: ''
+    TaskUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { $ref: '#/components/schemas/Title' }
+        description: { $ref: '#/components/schemas/Description' }
+        status: { $ref: '#/components/schemas/Status' }
+    Task:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, status]
+      properties:
+        id: { type: integer, minimum: 1 }
+        title: { $ref: '#/components/schemas/Title' }
+        description: { $ref: '#/components/schemas/Description' }
+        status: { $ref: '#/components/schemas/Status' }
+    HTTPValidationError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            required: [loc, msg, type]
+            properties:
+              loc:
+                type: array
+                items:
+                  anyOf: [{ type: string }, { type: integer }]
+              msg: { type: string }
+              type: { type: string }
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+  responses:
+    NotFound:
+      description: Task does not exist
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { detail: Task not found. }
+    ValidationError:
+      description: Invalid body or path parameter; saved data is unchanged
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/HTTPValidationError' }
