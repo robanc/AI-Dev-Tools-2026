@@ -11,6 +11,8 @@ from .models import Base
 class Database:
     def __init__(self, url: str | None = None):
         url = make_url(url or os.getenv("DATABASE_URL", "sqlite:///./pairroom.db"))
+        if url.drivername == "postgresql":
+            url = url.set(drivername="postgresql+psycopg")
         options = {}
         if url.get_backend_name() == "sqlite":
             options["connect_args"] = {"check_same_thread": False}

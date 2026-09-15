@@ -32,10 +32,12 @@ process-local. Synchronous, short database transactions suit this small course
 MVP; multi-worker broadcasting and production-scale traffic are not supported.
 
 `DATABASE_URL` accepts SQLAlchemy connection URLs. SQLite is the default;
-models and transactions use portable SQLAlchemy operations. PostgreSQL can be
-configured later, for example with `postgresql+psycopg://user:password@localhost/pairroom`,
-after installing its driver and creating the database. PostgreSQL has not been
-verified in this step. No Alembic is needed for the initial schema: `create_all`
+models and transactions use portable SQLAlchemy operations. PostgreSQL uses the
+included Psycopg 3 binary driver. Create the database first, then set
+`DATABASE_URL=postgresql://user:password@localhost:5432/pairroom` (or use the explicit
+`postgresql+psycopg://` scheme). Plain `postgresql://` URLs select Psycopg 3.
+Startup creates missing tables in that database. SQLite remains the default.
+No Alembic is needed for the initial schema: `create_all`
 creates missing tables but does not migrate existing tables after schema changes.
 
 The connected frontend uses the four HTTP operations in [openapi.yaml](../openapi.yaml)
