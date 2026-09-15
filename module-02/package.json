@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:integration": "docker compose -f docker-compose.yaml up --build -d --wait && npm --prefix frontend run test:integration",
+    "test:e2e:compose": "docker compose -f docker-compose.yaml up --build -d --wait && npm --prefix frontend run test:e2e:compose",
     "dev": "concurrently --kill-others --names backend,frontend \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log",
     "dev:frontend": "cross-env VITE_INTERVIEW_SERVICE=real VITE_API_BASE_URL=http://127.0.0.1:8000 npm --prefix frontend run dev -- --host 127.0.0.1 --port 5173 --strictPort"

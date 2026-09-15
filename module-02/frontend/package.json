@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:integration": "playwright test --config playwright.compose.config.js --project integration",
+    "test:e2e:compose": "playwright test --config playwright.compose.config.js --project e2e",
     "dev": "vite",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -48,6 +48,72 @@ or `npm run dev:frontend`. See [frontend/README.md](frontend/README.md) and
 [backend/README.md](backend/README.md) for configuration, tests, and the original
 separate-terminal commands.
 
+## Docker Compose: PairRoom and PostgreSQL
+
+From `module-02`, with Docker running in Linux-container mode:
+
+```sh
+docker compose config --quiet
+docker compose up --build -d
+```
+
+Open http://localhost:8100 (API docs: http://localhost:8100/docs).
+Compose builds the app using the existing Dockerfile and waits for PostgreSQL
+16 to pass its `pg_isready` health check before starting the app. Browser origins
+are configured for port 8100, including WebSocket connections.
+
+The database name, username, and password are all `pairroom` for this local stack.
+PostgreSQL is accessible to the app as `postgres:5432` and has no published host
+port. The app uses `DATABASE_URL` to select PostgreSQL; SQLite remains the default
+for development and standalone Docker runs.
+
+View logs or stop the stack:
+
+```sh
+docker compose logs -f
+docker compose down
+```
+
+The `postgres-data` named volume preserves database contents across restarts and
+`docker compose down`. Adding `--volumes` to `down` deletes that saved data.
+
+## Module 3 integration and Compose E2E tests
+
+After installing the dependencies above, run these commands from `module-02`
+with Docker running in Linux-container mode:
+
+```sh
+npm run test:integration
+npm run test:e2e:compose
+```
+
+Both commands build and start the production `docker-compose.yaml` stack at
+http://127.0.0.1:8100. Integration tests use Playwright's HTTP client and require
+no browser installation. For E2E, install Chromium once with
+`npm --prefix frontend exec -- playwright install chromium`, or set
+`PLAYWRIGHT_CHANNEL=msedge` to use installed Edge.
+
+Run the commands sequentially: the persistence test restarts the app service.
+Tests create sessions in the Compose PostgreSQL volume and leave the stack
+running for inspection. Stop it with `docker compose down`; the volume is retained.
+If the stack is already built and running, use `npm --prefix frontend run
+test:integration` or `npm --prefix frontend run test:e2e:compose` to skip rebuilding.
+
+Coverage and reuse:
+
+| Suite | Coverage |
+| --- | --- |
+| Existing backend `tests/` | API contract, roles, WebSockets, persistence/restart with temporary SQLite, static routing with fixture assets; PostgreSQL driver configuration without a connection |
+| Existing frontend unit tests | UI, mock and real service behavior, editor and local execution |
+| Existing `e2e/interview.spec.js`, reused by Compose | Creates an interviewer session, joins its candidate link in a separate browser context, edits code in both directions within one second, verifies a real WebSocket update frame, roles, refresh, disconnect/reconnect and invalid links |
+| New `compose-integration/stack.spec.js` | Actual compiled JS/CSS served over HTTP, backend API reachable, API writes verified directly in Compose PostgreSQL, saved state restored after app restart |
+| Existing `container-e2e/` | Packaged JavaScript/Pyodide execution and navigation; retained under `test:container` |
+
+Opening the candidate invitation performs the join automatically; there is no
+separate Join button. Compose tests use the production real service with no mocks
+or host development servers. Existing unit commands remain
+`npm --prefix frontend test` and `uv run --project backend pytest backend/tests`.
+
 ## Docker: one container for frontend and backend
 
 From `module-02`, with Docker running in Linux-container mode:

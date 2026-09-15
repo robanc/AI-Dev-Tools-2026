@@ -4,6 +4,14 @@ test('two browser windows share edits, enforce roles, refresh, and reconnect', a
   const candidateContext = await browser.newContext();
   const candidate = await candidateContext.newPage();
   const errors = [];
+  const ownerUpdates = [];
+  owner.on('websocket', socket => {
+    if (!new URL(socket.url()).pathname.endsWith('/ws')) return;
+    socket.on('framereceived', ({ payload }) => {
+      const message = JSON.parse(String(payload));
+      if (message.type === 'session.updated') ownerUpdates.push(message.session.code);
+    });
+  });
   owner.on('pageerror', error => errors.push(error.message));
   candidate.on('pageerror', error => errors.push(error.message));
   try {
@@ -26,6 +34,7 @@ test('two browser windows share edits, enforce roles, refresh, and reconnect', a
     await candidate.getByRole('textbox', { name: 'Shared code' }).fill('function sum(a, b) { return a + b; }');
     await expect(owner.getByRole('textbox', { name: 'Shared code' })).toHaveText('function sum(a, b) { return a + b; }', { timeout: 1000 });
     timings.push(Date.now() - start);
+    expect(ownerUpdates).toContain('function sum(a, b) { return a + b; }');
     start = Date.now();
     await owner.getByRole('textbox', { name: 'Shared code' }).fill('const sum = (a, b) => a + b;');
     await expect(candidate.getByRole('textbox', { name: 'Shared code' })).toHaveText('const sum = (a, b) => a + b;', { timeout: 1000 });
