@@ -23,6 +23,34 @@ info:
 security:
   - SessionToken: []
 paths:
+  /health:
+    get:
+      operationId: health
+      summary: Check application and database connectivity
+      security: []
+      responses:
+        '200':
+          description: Application can query the database.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        '503':
+          description: Database unavailable; no connection details are exposed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [unavailable]
   /sessions:
     post:
       operationId: createSession

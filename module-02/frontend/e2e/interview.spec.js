@@ -1,5 +1,37 @@
 import { test, expect } from '@playwright/test';
 
+for (const mode of ['preferred', 'unavailable', 'rejected', 'blocked']) {
+  test(`candidate invitation copy: ${mode}`, async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await page.goto('/?utm_source=chatgpt.com');
+    await page.getByRole('button', { name: /Create session/ }).click();
+    const field = page.getByLabel('Candidate invitation', { exact: true });
+    await expect(field).toBeVisible();
+    await page.evaluate(mode => {
+      const clipboard = navigator.clipboard;
+      window.readCopiedInvitation = () => clipboard.readText();
+      if (mode === 'preferred') {
+        document.execCommand = () => { throw new Error('Fallback must not run'); };
+      } else if (mode === 'rejected') {
+        Object.defineProperty(navigator, 'clipboard', { configurable: true,
+          value: { writeText: async () => { throw new Error('Permission denied'); } } });
+      } else {
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+      }
+      if (mode === 'blocked') document.execCommand = () => false;
+    }, mode);
+    await page.getByRole('button', { name: /Copy candidate link/ }).click();
+    if (mode === 'blocked') {
+      await expect(page.getByText('Automatic copy failed. Select and copy the invitation link manually.')).toBeVisible();
+      await expect(field).toBeFocused();
+      expect(await field.evaluate(input => input.selectionStart === 0 && input.selectionEnd === input.value.length)).toBe(true);
+    } else {
+      await expect(page.getByText('Link copied', { exact: true })).toBeVisible();
+      // Compare inside the browser so private links never appear in assertion output.
+      expect(await page.evaluate(async () => await window.readCopiedInvitation() === document.getElementById('invitation').value)).toBe(true);
+    }
+  });
+}
 test('two browser windows share edits, enforce roles, refresh, and reconnect', async ({ browser, page: owner }, testInfo) => {
   const candidateContext = await browser.newContext();
   const candidate = await candidateContext.newPage();
@@ -15,10 +47,13 @@ test('two browser windows share edits, enforce roles, refresh, and reconnect', a
   owner.on('pageerror', error => errors.push(error.message));
   candidate.on('pageerror', error => errors.push(error.message));
   try {
-    await owner.goto('/');
+    await owner.goto('/?utm_source=chatgpt.com#/');
     await owner.getByRole('button', { name: /Create session/ }).click();
     await expect(owner.getByRole('textbox', { name: 'Shared code' })).toHaveAttribute('aria-readonly', 'false');
     const invitation = await owner.getByLabel('Candidate invitation', { exact: true }).inputValue();
+    expect(new URL(invitation).search).toBe('');
+    expect(invitation.startsWith(`${new URL(owner.url()).origin}/#/session/`)).toBe(true);
+    expect(new URL(invitation).hash === new URL(owner.url()).hash).toBe(false);
     await candidate.goto(invitation);
     await expect(candidate.getByRole('textbox', { name: 'Shared code' })).toHaveAttribute('aria-readonly', 'false');
     await expect(owner.getByText('Candidate connected', { exact: true })).toBeVisible();

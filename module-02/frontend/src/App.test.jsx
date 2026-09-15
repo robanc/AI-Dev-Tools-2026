@@ -1,4 +1,4 @@
-import { beforeEach, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EditorView } from '@codemirror/view';
@@ -11,6 +11,46 @@ vi.mock('./services/index.js', async () => ({
   serviceMode: 'mock',
 }));
 beforeEach(() => { localStorage.clear(); window.location.hash = '#/'; });
+afterEach(() => { vi.restoreAllMocks(); window.history.replaceState(null, '', '/#/'); });
+it.each([
+  ['unavailable', true], ['rejected', true], ['unavailable', false],
+  ['rejected', false], ['unavailable', 'throws'], ['unavailable', 'missing'],
+])('handles clipboard %s with fallback %s', async (clipboard, fallback) => {
+  const user = userEvent.setup();
+  const writeText = vi.fn().mockRejectedValue(new Error('Permission denied'));
+  vi.spyOn(navigator, 'clipboard', 'get').mockReturnValue(clipboard === 'unavailable' ? undefined : { writeText });
+  const original = Object.getOwnPropertyDescriptor(document, 'execCommand');
+  const execCommand = vi.fn(() => {
+    if (fallback === 'throws') throw new Error('Copy blocked');
+    const input = screen.getByLabelText('Candidate invitation');
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+    return fallback;
+  });
+  Object.defineProperty(document, 'execCommand', { configurable: true, value: fallback === 'missing' ? undefined : execCommand });
+  try {
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: /Create session/ }));
+    await user.click(await screen.findByRole('button', { name: /Copy candidate link/ }));
+    expect(await screen.findByText(fallback === true ? 'Link copied' : 'Automatic copy failed. Select and copy the invitation link manually.')).toBeVisible();
+    expect(screen.getByLabelText('Candidate invitation')).toBeVisible();
+    if (fallback !== 'missing') expect(execCommand).toHaveBeenCalledWith('copy');
+    if (clipboard === 'rejected') expect(writeText).toHaveBeenCalledWith(screen.getByLabelText('Candidate invitation').value);
+  } finally {
+    if (original) Object.defineProperty(document, 'execCommand', original);
+    else delete document.execCommand;
+  }
+});
+it('creates a clean candidate link from a page with tracking parameters', async () => {
+  window.history.replaceState(null, '', '/?utm_source=chatgpt.com#/');
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: /Create session/ }));
+  const input = await screen.findByLabelText('Candidate invitation');
+  expect(input.value.startsWith(`${window.location.origin}/#/session/`)).toBe(true);
+  expect(new URL(input.value).search).toBe('');
+  expect(new URL(input.value).hash).not.toBe(window.location.hash);
+});
 it('creates an interviewer room with empty fields and a copyable candidate link', async () => {
   const user = userEvent.setup();
   render(<App />);

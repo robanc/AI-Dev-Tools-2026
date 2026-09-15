@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: PairRoom course POC - one EC2 host with HTTP app and PostgreSQL.
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC containing the public subnet.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Existing subnet in VpcId with an Internet Gateway default route.
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing SSH key pair in us-east-1.
+  SshCidr:
+    Type: String
+    AllowedPattern: '(\d{1,3}\.){3}\d{1,3}/32'
+    Description: Your public IPv4 address followed by /32.
+  AppImage:
+    Type: String
+    AllowedPattern: '[a-zA-Z0-9][a-zA-Z0-9._/:-]*(@sha256:[a-f0-9]{64})?'
+    Description: Publicly pullable linux/amd64 PairRoom image, preferably pinned by digest.
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.small, t3.medium]
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+Resources:
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public HTTP; SSH from the operator only
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SshCidr
+      SecurityGroupEgress:
+        - {IpProtocol: '-1', CidrIp: 0.0.0.0/0}
+  Server:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      CreditSpecification: {CPUCredits: standard}
+      MetadataOptions: {HttpTokens: required, HttpPutResponseHopLimit: 1}
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetId
+          GroupSet: [!Ref WebSecurityGroup]
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 20
+            Encrypted: true
+            DeleteOnTermination: true
+      Tags:
+        - {Key: Name, Value: !Sub '${AWS::StackName}-pairroom'}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          umask 077
+          dnf install -y docker openssl
+          install -d /usr/local/lib/docker/cli-plugins /opt/pairroom
+          cd /usr/local/lib/docker/cli-plugins
+          curl --fail --location --retry 5 -O https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64
+          curl --fail --location --retry 5 -O https://github.com/docker/compose/releases/download/v2.39.4/docker-compose-linux-x86_64.sha256
+          sha256sum -c docker-compose-linux-x86_64.sha256
+          mv docker-compose-linux-x86_64 docker-compose
+          chmod 755 docker-compose
+          systemctl enable --now docker
+          cd /opt/pairroom
+          if [ ! -f .env ]; then
+            printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 32)" > .env
+          fi
+          cat > compose.yaml <<'COMPOSE'
+          name: pairroom
+          x-defaults: &defaults
+            restart: unless-stopped
+            logging:
+              driver: json-file
+              options: {max-size: 10m, max-file: '3'}
+          services:
+            postgres:
+              <<: *defaults
+              image: postgres:16-alpine
+              environment:
+                POSTGRES_USER: pairroom
+                POSTGRES_DB: pairroom
+                POSTGRES_PASSWORD: ${!POSTGRES_PASSWORD:?required}
+              volumes:
+                - postgres-data:/var/lib/postgresql/data
+              healthcheck:
+                test: [CMD-SHELL, 'pg_isready -U pairroom -d pairroom']
+                interval: 5s
+                timeout: 5s
+                retries: 12
+            app:
+              <<: *defaults
+              image: ${AppImage}
+              environment:
+                DATABASE_URL: postgresql+psycopg://pairroom:${!POSTGRES_PASSWORD:?required}@postgres:5432/pairroom?connect_timeout=5
+                FRONTEND_ORIGINS: ${!FRONTEND_ORIGINS:?required}
+              ports: ['80:8000']
+              depends_on:
+                postgres: {condition: service_healthy}
+              healthcheck:
+                test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=8)"]
+                interval: 15s
+                timeout: 10s
+                retries: 5
+                start_period: 30s
+          volumes:
+            postgres-data:
+          COMPOSE
+          cat > /opt/pairroom/start.sh <<'START'
+          #!/bin/bash
+          set -euo pipefail
+          umask 077
+          cd /opt/pairroom
+          TOKEN=$(curl --fail --silent --show-error --retry 5 --connect-timeout 5 --max-time 30 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
+          PUBLIC_IP=$(curl --fail --silent --show-error --retry 5 --connect-timeout 5 --max-time 30 -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
+          [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
+          sed -i '/^FRONTEND_ORIGINS=/d' .env
+          printf 'FRONTEND_ORIGINS=http://%s\n' "$PUBLIC_IP" >> .env
+          docker compose up -d --wait --wait-timeout 300
+          START
+          chmod 700 /opt/pairroom/start.sh
+          cat > /etc/systemd/system/pairroom.service <<'SERVICE'
+          [Unit]
+          Description=PairRoom Compose with current EC2 public IPv4 origin
+          Wants=network-online.target
+          Requires=docker.service
+          After=network-online.target docker.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          WorkingDirectory=/opt/pairroom
+          ExecStart=/opt/pairroom/start.sh
+          TimeoutStartSec=600
+
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE
+          systemctl daemon-reload
+          systemctl enable --now pairroom.service
+          touch /opt/pairroom/bootstrap-complete
+Outputs:
+  InstanceId:
+    Value: !Ref Server
+  PublicIp:
+    Description: Public HTTP address; may change after stop/start.
+    Value: !GetAtt Server.PublicIp
+  ApplicationUrl:
+    Value: !Sub 'http://${Server.PublicIp}'
+  HealthUrl:
+    Value: !Sub 'http://${Server.PublicIp}/health'

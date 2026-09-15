@@ -1,5 +1,9 @@
 # Pairroom — Module 2
 
+For the single-EC2 CloudFormation proof of concept, see
+[AWS deployment and cleanup](deploy/aws/README.md). This includes Caddy HTTPS,
+PostgreSQL storage, prerequisites, local validation, and explicit data deletion behavior.
+
 Start the FastAPI backend and React/Vite frontend together from `module-02`.
 Requirements: Node.js 22.12+, npm, Python 3.12+, and uv on your PATH.
 

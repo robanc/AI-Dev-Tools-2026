@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from . import realtime, routers
 from .errors import APIError, error_response
@@ -19,6 +22,7 @@ def create_app(*, database_url: str | None = None, auth_timeout: float = 5, hear
         database = Database(database_url)
         try:
             database.initialize()
+            app.state.database = database
             app.state.store = PersistentStore(SessionRepository(database))
             yield
         finally:
@@ -50,6 +54,15 @@ def create_app(*, database_url: str | None = None, auth_timeout: float = 5, hear
     @app.exception_handler(Exception)
     async def internal_error(request, exc):
         return error_response(500, "internal_error", "Could not complete the request. Please try again.")
+
+    @app.get("/health", include_in_schema=True)
+    def health():
+        try:
+            with app.state.database.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except SQLAlchemyError:
+            return JSONResponse({"status": "unavailable"}, status_code=503)
+        return {"status": "ok"}
 
     app.include_router(routers.router)
     app.include_router(realtime.router)
