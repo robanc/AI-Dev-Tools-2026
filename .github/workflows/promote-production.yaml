@@ -1,0 +1,49 @@
+name: Promote development to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      development_run_id:
+        description: Successful main CI run ID that deployed the version to development
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: module-02
+
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: pairroom-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate successful development version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVELOPMENT_RUN_ID: ${{ inputs.development_run_id }}
+        run: python deploy/aws/promote.py resolve --run-id "$DEVELOPMENT_RUN_ID" --output "$GITHUB_ENV"
+      - name: Verify image is still publicly available
+        run: docker manifest inspect "$DEPLOY_IMAGE" > /dev/null
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: pairroom-production-${{ github.run_id }}
+      - name: Deploy exact development digest and verify health
+        run: python deploy/aws/deploy.py

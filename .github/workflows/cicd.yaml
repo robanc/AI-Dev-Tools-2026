@@ -82,9 +82,9 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    environment: production
+    environment: development
     concurrency:
-      group: pairroom-production
+      group: pairroom-development
       cancel-in-progress: false
     permissions:
       contents: read
@@ -121,3 +121,11 @@ jobs:
           role-session-name: pairroom-${{ github.run_id }}
       - name: Deploy and verify public health endpoint
         run: python deploy/aws/deploy.py
+      - name: Record verified development version
+        run: python deploy/aws/promote.py record --output /tmp/promotion.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: development-promotion-${{ github.run_attempt }}
+          path: /tmp/promotion.json
+          if-no-files-found: error
+          retention-days: 90

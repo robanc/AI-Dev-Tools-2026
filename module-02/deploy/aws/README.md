@@ -2,10 +2,29 @@
 
 This directory prepares a deployment; nothing here needs to be run against AWS
 to review it. Commands below that publish images or deploy are **future operator
-steps**, not part of local validation. Run PowerShell examples from the repository
-root. The existing local `docker-compose.yaml` is unchanged.
+steps**, not part of local validation. Run PowerShell examples from `module-02`.
+The existing local `docker-compose.yaml` is unchanged.
 
 ## Architecture and exact resource inventory
+
+The existing `pairroom-course` stack is **development** and must remain in place,
+including instance `i-0f8241cfdf9d0678b`, its application and database. A separate
+`pairroom-production` stack uses this same template for an independent production
+host and database. Normal main CI deploys to development; production receives the
+exact successfully deployed development image digest through a manual promotion
+workflow. See [CI/CD and promotion](cicd.md).
+
+Reuse VPC `vpc-0e23edcb51f3c8731`, public subnet `subnet-0af20b3001186f57e`, and
+the existing internet gateway. Each stack owns its own security group, instance,
+public IP and encrypted 20 GiB root disk. Each host generates its own database
+password and has its own Docker network and PostgreSQL volume. No database data
+is copied or shared. This adds a second host's EC2, EBS and public IPv4 costs.
+
+For production, create `PairRoomProductionEC2SSMRole` (EC2 trust, only
+`AmazonSSMManagedInstanceCore`) and `PairRoomProductionEC2SSMProfile` separately,
+then pass that profile's name to the new stack. Keep the existing development
+profile. The GitHub OIDC provider is shared, but deployment roles are scoped to
+one environment and one instance each. Neither workflow provisions infrastructure.
 
 `cloudformation.yaml` declares exactly two resources:
 
@@ -22,7 +41,7 @@ By default the instance has no IAM instance profile. CI/CD can attach an existin
 SSM profile through `InstanceProfileName`; see [GitHub Actions setup](cicd.md).
 Do not supply static AWS credentials to the instance.
 
-On first boot, user data installs Docker and checksum-verifies a pinned Compose
+On first boot, user data enables/starts the Amazon Linux SSM agent, installs Docker and checksum-verifies a pinned Compose
 plugin, then writes `/opt/pairroom/compose.yaml`, a root-only `.env` with a
 random database password, and a boot service. Compose runs two containers:
 
@@ -105,22 +124,32 @@ public-IP behavior still require verification after an operator deploys.
 
 ## Future deployment commands — not executed during preparation
 
-First build/publish using your existing registry workflow (replace the image
-name; `docker push` publishes externally):
+For the dev/prod split, use a **new** stack name `pairroom-production`, pass
+`InstanceProfileName=PairRoomProductionEC2SSMProfile`, and set `AppImage` to the
+immutable GHCR digest recorded by a successful development deployment. Do not
+rebuild/publish another image for production or use the old bootstrap image stored
+in the development stack's parameters. Creating the new stack starts the application
+and an empty production database through user data; it requires separate deployment
+authorization. The commands below are generic examples, not a migration script.
 
-```powershell
-docker build --platform linux/amd64 -t YOUR_PUBLIC_REGISTRY/YOUR_ACCOUNT/pairroom:course .
-docker push YOUR_PUBLIC_REGISTRY/YOUR_ACCOUNT/pairroom:course
-```
+Do not update, rename, delete or recreate `pairroom-course` during this split.
+Its live template predates SSM instance-profile support, and its root disk has
+`DeleteOnTermination: true`. Keep that stack, its AMI and its data unchanged.
+Use separate stack variables for all future production operations and confirm
+the target instance ID before deployment. Production retains the same single-host,
+HTTP and root-disk persistence limitations described above.
 
-Use the digest reported by the push as `AppImage`. Authenticate to AWS with your
-existing short-lived profile, then replace all example values:
+Development CI builds and publishes the image. For initial production provisioning,
+use the digest from its verified promotion record as `AppImage`. Authenticate to
+AWS with your existing short-lived profile, then replace the example values. Run
+these commands from `module-02`. Subsequent releases use the manual promotion
+workflow, not CloudFormation updates.
 
 ```powershell
 $env:AWS_PROFILE = 'your-existing-profile'
-$Stack = 'pairroom-course'
-$Image = 'YOUR_PUBLIC_REGISTRY/YOUR_ACCOUNT/pairroom@sha256:REPLACE_WITH_DIGEST'
-aws cloudformation deploy --region us-east-1 --stack-name $Stack --template-file deploy/aws/cloudformation.yaml --parameter-overrides VpcId=vpc-REPLACE SubnetId=subnet-REPLACE KeyName=YOUR_EXISTING_KEY SshCidr=YOUR_PUBLIC_IPV4/32 AppImage=$Image
+$Stack = 'pairroom-production'
+$Image = 'ghcr.io/robanc/ai-dev-tools-2026@sha256:VERIFIED_DEVELOPMENT_DIGEST'
+aws cloudformation deploy --region us-east-1 --stack-name $Stack --template-file deploy/aws/cloudformation.yaml --parameter-overrides VpcId=vpc-0e23edcb51f3c8731 SubnetId=subnet-0af20b3001186f57e KeyName=pairroom-key SshCidr=YOUR_CURRENT_PUBLIC_IPV4/32 AppImage=$Image InstanceProfileName=PairRoomProductionEC2SSMProfile
 aws cloudformation describe-stacks --region us-east-1 --stack-name $Stack --query 'Stacks[0].Outputs' --output table
 $ServerIp = aws cloudformation describe-stacks --region us-east-1 --stack-name $Stack --query "Stacks[0].Outputs[?OutputKey=='PublicIp'].OutputValue | [0]" --output text
 ```

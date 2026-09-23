@@ -73,6 +73,7 @@ Resources:
           #!/bin/bash
           set -euo pipefail
           umask 077
+          systemctl enable --now amazon-ssm-agent
           dnf install -y docker openssl
           install -d /usr/local/lib/docker/cli-plugins /opt/pairroom
           cd /usr/local/lib/docker/cli-plugins
