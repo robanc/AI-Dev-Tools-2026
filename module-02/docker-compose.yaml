@@ -15,6 +15,7 @@ services:
       start_period: 10s
 
   app:
+    image: ${APP_IMAGE:-pairroom:local}
     build:
       context: .
       dockerfile: Dockerfile

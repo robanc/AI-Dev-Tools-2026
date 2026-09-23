@@ -1,0 +1,123 @@
+name: Test and deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: module-02
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.10'
+          python-version: '3.12'
+      - run: uv sync --project backend --locked
+      - run: uv run --project backend pytest backend/tests -q
+      - run: uv run --project backend python deploy/aws/validate.py
+      - run: python -m unittest discover -s deploy/aws/tests -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: module-02/frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend test
+
+  compose:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_PROJECT_NAME: pairroom-ci
+      APP_IMAGE: pairroom:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: module-02/frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: module-02/frontend
+      - run: docker compose up --build -d --wait --wait-timeout 180
+      - run: npm --prefix frontend run test:integration
+      - run: npm --prefix frontend run test:e2e:compose
+      - name: Save the tested image
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: docker save "$APP_IMAGE" | gzip > /tmp/pairroom.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          name: tested-image
+          path: /tmp/pairroom.tar.gz
+          retention-days: 1
+      - name: Container diagnostics
+        if: failure()
+        run: docker compose logs --no-color --tail=100
+      - name: Remove disposable test stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  deploy:
+    needs: compose
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: pairroom-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_INSTANCE_ID: ${{ vars.AWS_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: tested-image
+          path: /tmp
+      - name: Publish tested image to public GHCR package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker load -i /tmp/pairroom.tar.gz
+          docker tag "pairroom:$GITHUB_SHA" "$image"
+          docker push "$image"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image")
+          echo "DEPLOY_IMAGE=$digest" >> "$GITHUB_ENV"
+          docker logout ghcr.io
+          # The EC2 host pulls anonymously; fail before changing it if private.
+          docker manifest inspect "$digest" > /dev/null
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: pairroom-${{ github.run_id }}
+      - name: Deploy and verify public health endpoint
+        run: python deploy/aws/deploy.py

@@ -18,7 +18,9 @@ There is no new VPC, subnet, Internet Gateway, NAT Gateway, Elastic IP, load
 balancer, RDS instance, ECR repository, S3 bucket, DNS record, IAM role, IAM user,
 access key, or Secrets Manager secret. The existing EC2 key pair is referenced.
 The AWS-managed public SSM parameter supplies the AMI ID; no parameter is created.
-The instance has no IAM instance profile. Do not supply AWS credentials to it.
+By default the instance has no IAM instance profile. CI/CD can attach an existing
+SSM profile through `InstanceProfileName`; see [GitHub Actions setup](cicd.md).
+Do not supply static AWS credentials to the instance.
 
 On first boot, user data installs Docker and checksum-verifies a pinned Compose
 plugin, then writes `/opt/pairroom/compose.yaml`, a root-only `.env` with a

@@ -184,3 +184,12 @@ to `http://127.0.0.1:8000`; set it when using another published port. These are
 normal shell environment variables (PowerShell: `$env:CONTAINER_URL = 'http://127.0.0.1:8080'`).
 The tests create sessions, so use a disposable test container/volume rather than
 a database containing interviews you want to keep.
+
+## CI/CD
+
+The repository-root GitHub Actions workflow runs backend and frontend tests in
+parallel, builds and tests the Compose stack, then deploys the tested image from
+`main` to the existing AWS EC2 host using GitHub OIDC and Systems Manager. It
+verifies the deployed image and public `/health` endpoint before succeeding.
+See [CI/CD setup and operation](deploy/aws/cicd.md) for the required GitHub
+environment variables, AWS role policies, public image package, and rollback.

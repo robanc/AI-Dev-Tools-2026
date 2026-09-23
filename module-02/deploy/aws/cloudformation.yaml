@@ -1,6 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: PairRoom course POC - one EC2 host with HTTP app and PostgreSQL.
 Parameters:
+  InstanceProfileName:
+    Type: String
+    Default: ''
+    Description: Optional existing instance profile with AmazonSSMManagedInstanceCore for CI deployment.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: Existing VPC containing the public subnet.
@@ -25,6 +29,8 @@ Parameters:
   LatestAmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+Conditions:
+  HasInstanceProfile: !Not [!Equals [!Ref InstanceProfileName, '']]
 Resources:
   WebSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -45,6 +51,7 @@ Resources:
       ImageId: !Ref LatestAmiId
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyName
+      IamInstanceProfile: !If [HasInstanceProfile, !Ref InstanceProfileName, !Ref 'AWS::NoValue']
       CreditSpecification: {CPUCredits: standard}
       MetadataOptions: {HttpTokens: required, HttpPutResponseHopLimit: 1}
       NetworkInterfaces:

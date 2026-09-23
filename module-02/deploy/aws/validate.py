@@ -16,7 +16,10 @@ class TemplateLoader(yaml.SafeLoader):
 
 
 TemplateLoader.add_multi_constructor(
-    "!", lambda loader, tag, node: loader.construct_scalar(node)
+    "!", lambda loader, tag, node: (
+        loader.construct_sequence(node) if isinstance(node, yaml.SequenceNode)
+        else loader.construct_scalar(node)
+    )
 )
 template = yaml.load(Path(__file__).with_name("cloudformation.yaml").read_text(), Loader=TemplateLoader)
 script = template["Resources"]["Server"]["Properties"]["UserData"]["Fn::Base64"]
