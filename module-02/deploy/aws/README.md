@@ -1,8 +1,8 @@
 # PairRoom on AWS (course proof of concept)
 
-This directory prepares a deployment; nothing here needs to be run against AWS
-to review it. Commands below that publish images or deploy are **future operator
-steps**, not part of local validation. Run PowerShell examples from `module-02`.
+This directory documents the development and production deployments. Commands
+that provision, deploy or delete resources are operator actions, not part of
+local validation. Run PowerShell examples from `module-02`.
 The existing local `docker-compose.yaml` is unchanged.
 
 ## Architecture and exact resource inventory
@@ -14,14 +14,18 @@ host and database. Normal main CI deploys to development; production receives th
 exact successfully deployed development image digest through a manual promotion
 workflow. See [CI/CD and promotion](cicd.md).
 
+Module 4 production provisioning and the first manual promotion are complete.
+See the [verification record](cicd.md#development-and-production) for the source
+development run and confirmed production health/frontend results.
+
 Reuse VPC `vpc-0e23edcb51f3c8731`, public subnet `subnet-0af20b3001186f57e`, and
 the existing internet gateway. Each stack owns its own security group, instance,
 public IP and encrypted 20 GiB root disk. Each host generates its own database
 password and has its own Docker network and PostgreSQL volume. No database data
 is copied or shared. This adds a second host's EC2, EBS and public IPv4 costs.
 
-For this production stage, reuse `PairRoomEC2SSMProfile` (EC2 trust, only
-`AmazonSSMManagedInstanceCore`) by passing its name to the new stack. Attaching
+Both hosts reuse `PairRoomEC2SSMProfile` (EC2 trust, only
+`AmazonSSMManagedInstanceCore`). For a new stack, pass its name. Attaching
 the existing profile to another host does not change development's attachment.
 The GitHub OIDC provider is shared, but deployment roles are scoped to
 one environment and one instance each. Neither workflow provisions infrastructure.
@@ -37,8 +41,8 @@ There is no new VPC, subnet, Internet Gateway, NAT Gateway, Elastic IP, load
 balancer, RDS instance, ECR repository, S3 bucket, DNS record, IAM role, IAM user,
 access key, or Secrets Manager secret. The existing EC2 key pair is referenced.
 The AWS-managed public SSM parameter supplies the AMI ID; no parameter is created.
-By default the instance has no IAM instance profile. CI/CD can attach an existing
-SSM profile through `InstanceProfileName`; see [GitHub Actions setup](cicd.md).
+By default the instance has no IAM instance profile. CloudFormation can attach an
+existing SSM profile through `InstanceProfileName`; see [GitHub Actions setup](cicd.md).
 Do not supply static AWS credentials to the instance.
 
 On first boot, user data enables/starts the Amazon Linux SSM agent, installs Docker and checksum-verifies a pinned Compose
@@ -74,7 +78,7 @@ HTTP traffic, including private role links and session content, is unencrypted;
 use disposable exercise data. Browser clipboard access may be unavailable over
 public HTTP; if Copy is blocked, select and copy the displayed invitation link.
 
-`pairroom.service` runs `/opt/pairroom/start.sh` on every boot. It retrieves the
+Once enabled, `pairroom.service` runs `/opt/pairroom/start.sh` on every boot. It retrieves the
 public IPv4 using IMDSv2 from the host, sets `FRONTEND_ORIGINS=http://PUBLIC_IP`
 in `.env`, and reconciles Compose. This permits the exact browser origin for
 WebSockets, including after a stop/start changes the IP. No wildcard origin or
@@ -141,7 +145,11 @@ Local verification passed: cfn-lint, embedded Compose config, 34 backend tests,
 224?236 ms. The browser test used local HTTP Compose, not EC2; cloud-init and
 public-IP behavior still require verification after an operator deploys.
 
-## Future deployment commands — not executed during preparation
+## Initial provisioning reference
+
+The Module 4 production stack already exists. Do not rerun provisioning against
+either existing stack; use manual promotion for application releases. The example
+below documents initial provisioning only.
 
 For the dev/prod split, use a **new** stack name `pairroom-production`, pass
 `InstanceProfileName=PairRoomEC2SSMProfile`, and set `AppImage` to the
@@ -151,7 +159,7 @@ in the development stack's parameters. Set `StartPairRoomOnBootstrap=false` to
 prepare the new host without deploying the application. The required `AppImage`
 value is written to the base configuration but is not pulled or started in this
 mode; the first promotion overrides it with the verified digest selected then.
-The commands below are future provisioning examples, not a migration script.
+The commands below are initial provisioning examples, not a migration script.
 
 Do not update, rename, delete or recreate `pairroom-course` during this split.
 Its live template predates SSM instance-profile support, and its root disk has
@@ -220,9 +228,10 @@ from `/opt/pairroom`, `sudo docker compose logs --tail=100` and
 restart with Docker after reboot; a health failure alone does not restart one.
 
 User data runs only on first boot. **Updating CloudFormation parameters does not
-reapply the application configuration.** For an image-only update, edit the image
-in `/opt/pairroom/compose.yaml` over SSH, then run `sudo docker compose pull app`
-and `sudo docker compose up -d --wait`. Keep the same `.env` and volumes. For
+reapply the application configuration.** For an image-only update, use development
+CI or the manual production promotion workflow described in [CI/CD](cicd.md).
+The helper writes `compose.override.yaml`; editing the base `compose.yaml` image
+does not override that selection. Keep the same `.env` and volumes. For
 infrastructure changes, review a change set and back up before any replacement.
 After stop/start, verify `http://NEW_IP/health` and two-browser collaboration
 again. If origin setup fails, correct metadata/network access and restart

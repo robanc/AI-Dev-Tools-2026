@@ -1,7 +1,7 @@
 # Pairroom — Module 2
 
 For the single-EC2 CloudFormation proof of concept, see
-[AWS deployment and cleanup](deploy/aws/README.md). This includes Caddy HTTPS,
+[AWS deployment and cleanup](deploy/aws/README.md). This includes public HTTP,
 PostgreSQL storage, prerequisites, local validation, and explicit data deletion behavior.
 
 Start the FastAPI backend and React/Vite frontend together from `module-02`.
@@ -185,11 +185,15 @@ normal shell environment variables (PowerShell: `$env:CONTAINER_URL = 'http://12
 The tests create sessions, so use a disposable test container/volume rather than
 a database containing interviews you want to keep.
 
-## CI/CD
+## Module 4: development CI/CD and production promotion
 
 The repository-root GitHub Actions workflow runs backend and frontend tests in
 parallel, builds and tests the Compose stack, then deploys the tested image from
-`main` to the existing AWS EC2 host using GitHub OIDC and Systems Manager. It
-verifies the deployed image and public `/health` endpoint before succeeding.
+`main` to development using GitHub OIDC and Systems Manager. A separate manual
+production workflow promotes the immutable image digest from a successful
+development CI run, using its own GitHub environment and AWS deployment role.
+Production infrastructure is initially bootstrapped without app/database containers;
+the first promotion starts them. Both workflows verify the deployed image and
+public `/health` endpoint before succeeding.
 See [CI/CD setup and operation](deploy/aws/cicd.md) for the required GitHub
 environment variables, AWS role policies, public image package, and rollback.

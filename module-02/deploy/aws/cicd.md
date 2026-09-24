@@ -16,6 +16,16 @@ separate concurrency groups; active deployments are not automatically cancelled.
 
 ## Development and production
 
+Module 4 verification is complete: development CI/CD is working and
+`pairroom-production` reached `CREATE_COMPLETE` with instance
+`i-0fa130640f25f0056`. The operator verified the first successful **Promote
+development to production** workflow using development CI run
+[36023467839](https://github.com/robanc/AI-Dev-Tools-2026/actions/runs/36023467839).
+Production `/health` returned HTTP 200 with `{"status":"ok"}`, and `/` returned
+HTTP 200 serving the PairRoom frontend. These are recorded verification results,
+not a live availability check. Retrieve the current public IP using the
+[AWS guide](README.md); it can change after stop/start.
+
 The existing `pairroom-course` stack and instance `i-0f8241cfdf9d0678b` are
 development. Keep their application, `.env`, database and disk intact. Production
 uses a separate `pairroom-production` stack, EC2 host, security group, credentials
@@ -64,13 +74,13 @@ a version successfully deployed to development, not necessarily what is currentl
 running there after newer deployments. Old Module 3 runs have no promotion record
 and cannot be selected. Rerun development CI to create a new eligible record.
 
-## One-time setup
+## One-time setup reference (completed for Module 4)
 
 1. Provision the host using [the AWS guide](README.md). The workflow updates an
-   existing deployment; it does not create or replace infrastructure. Create an
-   EC2 IAM role trusting `ec2.amazonaws.com`, attach the AWS-managed
-   `AmazonSSMManagedInstanceCore` policy, and put that role in an instance profile.
-   Supply its name as `InstanceProfileName` when creating the new production stack.
+   existing host; it does not create or replace infrastructure. Both hosts reuse
+   `PairRoomEC2SSMProfile`, whose EC2 role trusts `ec2.amazonaws.com` and has the
+   AWS-managed `AmazonSSMManagedInstanceCore` policy.
+   Supply that profile as `InstanceProfileName` when creating a new stack.
    Do not update or replace the existing development stack for this split.
    This optional parameter creates no IAM resources. The provisioning operator
    needs `iam:PassRole` for this role. On an existing host, attaching the profile
@@ -81,14 +91,14 @@ and cannot be selected. Rerun development CI to create a new eligible record.
    Wait for `/opt/pairroom/bootstrap-complete` before the first workflow deploy.
 3. Reuse the IAM OIDC provider `https://token.actions.githubusercontent.com`
    with audience `sts.amazonaws.com`. Use separate deployment roles: existing
-   `PairRoomGitHubDeployRole` for development and new
-   `PairRoomProductionGitHubDeployRole` for production. Use the exact trust subject
+   `PairRoomGitHubDeployRole` for development and
+   `PairRoomGitHubProductionDeployRole` for production. Use the exact trust subject
    below with `ENVIRONMENT` replaced by `development` or `production`.
 4. Attach the permissions policy below to the deployment role, substituting
    region, account and that environment's single instance ID. The GitHub role and EC2 role are
    separate. No static AWS keys, SSH keys, `iam:PassRole`, or CloudFormation write
    permissions are needed by the workflow.
-5. Create `development` and repoint the existing `production` GitHub environment.
+5. Use separate `development` and `production` GitHub environments.
    Restrict both environments' deployment
    branches to `main` (the environment-based OIDC subject has no branch claim).
    Add these environment variables:
@@ -101,8 +111,10 @@ and cannot be selected. Rerun development CI to create a new eligible record.
 
    Development uses `arn:aws:iam::857953323489:role/PairRoomGitHubDeployRole` and
    `i-0f8241cfdf9d0678b`. Production uses
-   `arn:aws:iam::857953323489:role/PairRoomProductionGitHubDeployRole` and its new
-   instance ID. Both use `us-east-1`. These are environment variables, not secrets.
+   `arn:aws:iam::857953323489:role/PairRoomGitHubProductionDeployRole` and
+   `i-0fa130640f25f0056`. Both use `us-east-1`. These are environment variables,
+   not secrets. OIDC provides temporary AWS credentials; no long-lived AWS access
+   keys are used.
 
 6. Allow GitHub Actions to write packages. The workflow publishes to
    `ghcr.io/OWNER/REPOSITORY`, tagged with the commit SHA. **Make this GHCR package
@@ -158,12 +170,22 @@ Deployment role permissions (one copy per environment):
 
 `SendCommand` permits root commands on that one host; protect the environment
 and repository accordingly. AWS requires `*` for the two read operations above.
+The production inline policy is `PairRoomProductionSingleInstanceDeploy`; both
+of its statements also include
+`"Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-1"}}`.
+Its only command target is `i-0fa130640f25f0056`, so it grants no deployment access
+to development. The two read permissions are regional, not instance-scoped.
+Production has no attached managed policies or other inline policies. Development
+retains its existing `PairRoomSingleInstanceDeploy` policy unchanged.
 See [GitHub's AWS OIDC setup](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
 and [AWS SendCommand](https://docs.aws.amazon.com/systems-manager/latest/APIReference/API_SendCommand.html).
 
 ## Operation and verification
 
-### Safe transition from Module 3 (future operator work)
+### Safe transition from Module 3 (historical procedure)
+
+This transition is complete for Module 4. The sequence below is retained as a
+reference, not an instruction to recreate or reconfigure the current deployment.
 
 Do not repoint the existing production environment while the old main workflow
 still automatically targets it. First ensure no old deployment is running or
