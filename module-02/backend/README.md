@@ -1,5 +1,10 @@
 # Pairroom backend
 
+Optional OpenTelemetry traces, metrics, and structured logs are described in
+[backend observability](../docs/observability.md). Export is disabled by default;
+enabling it requires an explicit environment, release version, and Collector URL.
+Existing local and deployed startup commands remain unchanged.
+
 To start both services together, follow the [root README](../README.md) dependency
 setup and run `npm run dev` from `module-02`. It runs the same backend command
 from this directory, preserving the default SQLite path. Ctrl+C stops both

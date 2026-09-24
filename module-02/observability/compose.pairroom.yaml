@@ -1,0 +1,17 @@
+# Merge after module-02/docker-compose.yaml; all relative paths use module-02.
+services:
+  app:
+    image: pairroom:observability-local
+    ports: !override
+      - '127.0.0.1:${PAIRROOM_OBSERVABILITY_PORT:-18100}:8000'
+    environment:
+      PAIRROOM_TELEMETRY_ENABLED: 'true'
+      OTEL_SERVICE_NAME: pairroom-backend
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=local,service.version=${PAIRROOM_OBSERVABILITY_VERSION:-observability-local}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      FRONTEND_ORIGINS: http://localhost:${PAIRROOM_OBSERVABILITY_PORT:-18100},http://127.0.0.1:${PAIRROOM_OBSERVABILITY_PORT:-18100}
+    networks: [default, telemetry]
+networks:
+  telemetry:
+    external: true
+    name: pairroom-telemetry

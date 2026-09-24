@@ -14,19 +14,27 @@ from .frontend import serve_frontend
 from .database import Database
 from .repository import SessionRepository
 from .store import PersistentStore
+from . import telemetry
 
 
 def create_app(*, database_url: str | None = None, auth_timeout: float = 5, heartbeat_timeout: float = 25) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
-        database = Database(database_url)
+        app.state.telemetry = telemetry.configure()
+        database = None
         try:
+            database = Database(database_url)
             database.initialize()
             app.state.database = database
             app.state.store = PersistentStore(SessionRepository(database))
             yield
         finally:
-            database.close()
+            try:
+                if database is not None:
+                    database.close()
+            finally:
+                if app.state.telemetry is not None:
+                    app.state.telemetry.shutdown()
 
     app = FastAPI(title="Pairroom Interview Session API", version="0.1.0", lifespan=lifespan)
     app.state.auth_timeout = auth_timeout
@@ -68,6 +76,7 @@ def create_app(*, database_url: str | None = None, auth_timeout: float = 5, hear
     app.include_router(realtime.router)
     if directory := os.getenv("FRONTEND_DIST"):
         serve_frontend(app, directory)
+    app.add_middleware(telemetry.TelemetryMiddleware, owner=app)
     return app
 
 

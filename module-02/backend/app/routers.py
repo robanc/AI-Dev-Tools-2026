@@ -1,4 +1,5 @@
 from typing import Annotated
+from contextlib import nullcontext
 
 from fastapi import APIRouter, Depends, Request
 
@@ -13,7 +14,9 @@ Access = Annotated[tuple[Session, Role], Depends(access)]
 
 @router.post("/sessions", status_code=201, response_model=CreatedSession, operation_id="createSession")
 async def create_session(request: Request):
-    return CreatedSession(interviewerLink=request.app.state.store.create().link("interviewer"))
+    telemetry = request.app.state.telemetry
+    with telemetry.session_creation() if telemetry else nullcontext():
+        return CreatedSession(interviewerLink=request.app.state.store.create().link("interviewer"))
 
 
 @router.get("/sessions/{sessionId}", response_model=SessionAccess, operation_id="getSession")
