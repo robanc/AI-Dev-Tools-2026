@@ -20,10 +20,10 @@ public IP and encrypted 20 GiB root disk. Each host generates its own database
 password and has its own Docker network and PostgreSQL volume. No database data
 is copied or shared. This adds a second host's EC2, EBS and public IPv4 costs.
 
-For production, create `PairRoomProductionEC2SSMRole` (EC2 trust, only
-`AmazonSSMManagedInstanceCore`) and `PairRoomProductionEC2SSMProfile` separately,
-then pass that profile's name to the new stack. Keep the existing development
-profile. The GitHub OIDC provider is shared, but deployment roles are scoped to
+For this production stage, reuse `PairRoomEC2SSMProfile` (EC2 trust, only
+`AmazonSSMManagedInstanceCore`) by passing its name to the new stack. Attaching
+the existing profile to another host does not change development's attachment.
+The GitHub OIDC provider is shared, but deployment roles are scoped to
 one environment and one instance each. Neither workflow provisions infrastructure.
 
 `cloudformation.yaml` declares exactly two resources:
@@ -43,7 +43,26 @@ Do not supply static AWS credentials to the instance.
 
 On first boot, user data enables/starts the Amazon Linux SSM agent, installs Docker and checksum-verifies a pinned Compose
 plugin, then writes `/opt/pairroom/compose.yaml`, a root-only `.env` with a
-random database password, and a boot service. Compose runs two containers:
+random database password, and a boot service.
+
+`StartPairRoomOnBootstrap` defaults to `'true'`, preserving the existing startup
+behavior. Set it to `'false'` for infrastructure-only production provisioning.
+Bootstrap still enables SSM and Docker, installs Compose, creates configuration
+and a fresh database password, but does not enable/start `pairroom.service` or
+create/start any application or PostgreSQL containers. The new EBS disk is ready;
+the PostgreSQL Docker volume and database are initialized only at first deployment.
+`bootstrap-complete` means host preparation finished, not application readiness.
+An `initial-deployment-pending` marker identifies this prepared, idle state.
+Rebooting this idle host does not start PairRoom.
+
+The first authorized promotion writes the selected digest override before enabling
+and starting `pairroom.service`. That service sets the public-IP origin and starts
+both containers with health checks. Only successful startup removes the pending
+marker; failure retains it for a retry. Later deployments update only the app.
+This parameter controls initial user data only; changing it on an existing stack
+does not stop/start the existing application. Do not update the development stack.
+
+When started, Compose runs two containers:
 
 - PairRoom publishes host port 80 to container port 8000, serving the frontend,
   API, `/health` and WebSockets with one Uvicorn worker.
@@ -125,12 +144,14 @@ public-IP behavior still require verification after an operator deploys.
 ## Future deployment commands — not executed during preparation
 
 For the dev/prod split, use a **new** stack name `pairroom-production`, pass
-`InstanceProfileName=PairRoomProductionEC2SSMProfile`, and set `AppImage` to the
+`InstanceProfileName=PairRoomEC2SSMProfile`, and set `AppImage` to the
 immutable GHCR digest recorded by a successful development deployment. Do not
 rebuild/publish another image for production or use the old bootstrap image stored
-in the development stack's parameters. Creating the new stack starts the application
-and an empty production database through user data; it requires separate deployment
-authorization. The commands below are generic examples, not a migration script.
+in the development stack's parameters. Set `StartPairRoomOnBootstrap=false` to
+prepare the new host without deploying the application. The required `AppImage`
+value is written to the base configuration but is not pulled or started in this
+mode; the first promotion overrides it with the verified digest selected then.
+The commands below are future provisioning examples, not a migration script.
 
 Do not update, rename, delete or recreate `pairroom-course` during this split.
 Its live template predates SSM instance-profile support, and its root disk has
@@ -149,7 +170,7 @@ workflow, not CloudFormation updates.
 $env:AWS_PROFILE = 'your-existing-profile'
 $Stack = 'pairroom-production'
 $Image = 'ghcr.io/robanc/ai-dev-tools-2026@sha256:VERIFIED_DEVELOPMENT_DIGEST'
-aws cloudformation deploy --region us-east-1 --stack-name $Stack --template-file deploy/aws/cloudformation.yaml --parameter-overrides VpcId=vpc-0e23edcb51f3c8731 SubnetId=subnet-0af20b3001186f57e KeyName=pairroom-key SshCidr=YOUR_CURRENT_PUBLIC_IPV4/32 AppImage=$Image InstanceProfileName=PairRoomProductionEC2SSMProfile
+aws cloudformation deploy --region us-east-1 --stack-name $Stack --template-file deploy/aws/cloudformation.yaml --parameter-overrides VpcId=vpc-0e23edcb51f3c8731 SubnetId=subnet-0af20b3001186f57e KeyName=pairroom-key SshCidr=YOUR_CURRENT_PUBLIC_IPV4/32 AppImage=$Image InstanceProfileName=PairRoomEC2SSMProfile StartPairRoomOnBootstrap=false
 aws cloudformation describe-stacks --region us-east-1 --stack-name $Stack --query 'Stacks[0].Outputs' --output table
 $ServerIp = aws cloudformation describe-stacks --region us-east-1 --stack-name $Stack --query "Stacks[0].Outputs[?OutputKey=='PublicIp'].OutputValue | [0]" --output text
 ```
@@ -167,6 +188,11 @@ Existing session links need their host changed to the new IP. Reboot normally
 preserves the address. No DNS configuration or certificate issuance is needed.
 
 **CREATE_COMPLETE reports infrastructure creation, not application readiness.**
+For infrastructure-only mode, verify cloud-init completion, EC2 running and SSM
+Online, `bootstrap-complete` plus `initial-deployment-pending`, an inactive/disabled
+`pairroom.service`, and no app/database containers. The public URL is allocated but
+does not serve PairRoom until an authorized promotion. The application checks
+below apply after that promotion, or when provisioning with startup enabled.
 No CloudFormation signal/CreationPolicy is used. Wait for cloud-init and inspect
 the containers separately (replace the private key path):
 

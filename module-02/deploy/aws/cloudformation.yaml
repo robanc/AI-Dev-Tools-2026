@@ -1,6 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: PairRoom course POC - one EC2 host with HTTP app and PostgreSQL.
 Parameters:
+  StartPairRoomOnBootstrap:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Start PairRoom and PostgreSQL during initial provisioning; false prepares an idle host for later promotion.
   InstanceProfileName:
     Type: String
     Default: ''
@@ -158,7 +163,11 @@ Resources:
           WantedBy=multi-user.target
           SERVICE
           systemctl daemon-reload
-          systemctl enable --now pairroom.service
+          if [ '${StartPairRoomOnBootstrap}' = 'true' ]; then
+            systemctl enable --now pairroom.service
+          else
+            touch /opt/pairroom/initial-deployment-pending
+          fi
           touch /opt/pairroom/bootstrap-complete
 Outputs:
   InstanceId:

@@ -30,7 +30,12 @@ def deployment_commands(image):
         "printf '%s\\n' 'services:' '  app:' '    image: " + image
         + "' > compose.override.yaml.tmp",
         'mv compose.override.yaml.tmp compose.override.yaml',
-        'docker compose up -d --no-deps --wait --wait-timeout 300 app',
+        'if [ -f initial-deployment-pending ]; then\n'
+        '  systemctl enable --now pairroom.service\n'
+        '  rm initial-deployment-pending\n'
+        'else\n'
+        '  docker compose up -d --no-deps --wait --wait-timeout 300 app\n'
+        'fi',
         f'test "$(docker inspect --format \'{{{{.Config.Image}}}}\' '
         f'"$(docker compose ps -q app)")" = "{image}"',
     ]

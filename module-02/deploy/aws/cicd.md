@@ -22,6 +22,16 @@ uses a separate `pairroom-production` stack, EC2 host, security group, credentia
 and PostgreSQL volume in the existing VPC/subnet. Production starts with an empty
 database; promotion copies the application version, never development data.
 
+Provision production with `StartPairRoomOnBootstrap=false` and the existing
+`PairRoomEC2SSMProfile`. The default is `true`, preserving development behavior.
+Disabled startup prepares an idle host with SSM, Docker and configuration but no
+application/database containers. `bootstrap-complete` then denotes host readiness.
+On first promotion, the deployment helper writes the verified digest override,
+enables/starts `pairroom.service` to initialize the origin and both containers,
+and removes `initial-deployment-pending` only after service success. Subsequent
+promotions retain app-only updates. No workflow or extra IAM permissions are needed
+for this distinction; both use the existing SSM deployment helper.
+
 Normal successful `main` CI (and manual main CI runs) targets the GitHub environment
 `development`. Only after `deploy.py` verifies SSM completion, the running image
 and public health does CI write `promotion.json`. The artifact is named
@@ -160,9 +170,11 @@ still automatically targets it. First ensure no old deployment is running or
 queued, configure development and change the existing role's trust to development,
 then publish the updated workflows in a coordinated change. Verify development
 CI before enabling production promotion. Provision production separately using a
-verified development digest; user data starts the application, so provisioning
-itself is an explicitly authorized deployment step. Create the production-only
-IAM roles/profile and set production variables only when its new instance is ready.
+verified development digest and `StartPairRoomOnBootstrap=false`; provisioning
+prepares the host without starting the application. Reuse `PairRoomEC2SSMProfile`.
+Create the production-only GitHub deployment role and set production variables
+only when its new instance is ready. The first manual promotion starts the database
+and application; later promotions update only the application.
 Do not dispatch the promotion workflow until the environment points to that host.
 
 The existing live stack predates the optional profile parameter in this template.
