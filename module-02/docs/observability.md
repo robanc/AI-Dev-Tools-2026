@@ -1,10 +1,11 @@
 # PairRoom backend observability
 
-This implements the backend instrumentation and local Collector pipeline steps of
+This implements the backend instrumentation and Collector pipeline steps of
 [Module 4](https://github.com/DataTalksClub/ai-dev-tools-zoomcamp/blob/main/04-devops/01-devops-and-observability-for-ai-built-apps.md).
-The local stack is separate from the application stack. AWS deployment configuration,
-dashboards and alerts remain later steps. Telemetry is still disabled on development
-and production hosts.
+The local stack is separate from the application stack. The development CI deploy
+path now contains an opt-in deployment for this stack and backend telemetry; the
+live development host remains unchanged until a later authorized deployment.
+Production promotion does not set the development opt-in and remains telemetry-disabled.
 
 ## Configuration
 
@@ -35,12 +36,12 @@ resource keys are accepted; automatic host/process resource detection is not use
 Operators must supply non-sensitive labels. The backend cannot infer a container's
 image digest and does not substitute the static package/API version `0.1.0`.
 
-For future AWS integration, pass the selected immutable `sha256:...` image digest
-as `service.version`, and the destination environment as
-`deployment.environment.name`. Use the same version when promoting the same image.
-The current deployment helper and Compose files do not pass these settings; wiring
-them requires a separately reviewed change. Do not set a baked-in production
-environment in an image shared with development.
+The development deploy helper passes the selected immutable `sha256:...` image
+digest as `service.version`, with `deployment.environment.name=development` and
+`OTEL_SERVICE_NAME=pairroom-backend`. The Collector base endpoint is
+`http://otel-collector:4318`. This configuration is generated at deployment time;
+the image does not bake in a development or production environment. Production
+promotion does not set the development opt-in and remains telemetry-disabled.
 
 ## Signals and privacy
 
@@ -154,10 +155,79 @@ written to the ignored `observability/.validation/results.json`. The script neve
 deletes volumes. To stop containers while preserving state, use Compose `stop` or
 `down` on each project without the `--volumes` option.
 
-The Docker telemetry network exists only on the local host. Development and
-production EC2 instances cannot reach it. Enabling export on either environment
-requires a separately reviewed Collector deployment, private network path, and
-deployment-time environment/version configuration.
+The local Docker telemetry network exists only on the local host. The AWS
+development deployment separately installs this committed stack on its EC2 host
+through SSM. PairRoom joins the stack's `pairroom-telemetry` Docker network; its
+OTLP requests do not use the public network. Production does not install this stack
+or enable telemetry through the production promotion workflow.
+
+## AWS development deployment
+
+The repository's development deploy step sets `PAIRROOM_DEPLOY_ENVIRONMENT=development`.
+Only this exact value enables observability. Before a deployment can start the
+stack, the helper checks that the EC2 host reports at least 3,500,000 KiB of RAM;
+this guards against starting the committed stack on the current `t3.small`. Resize
+the existing `pairroom-course` host to `t3.medium` in a separately approved
+CloudFormation update first. The template already allows that instance type. A
+resize interrupts the instance and may change its public IP; retrieve the current
+address from EC2 after it returns.
+
+The CI deploy helper copies only the pinned Compose and Collector/Prometheus/
+Loki/Tempo/Grafana datasource configuration into `/opt/pairroom-observability`
+through SSM Run Command. It does not copy `.env`, `.secrets`, `.validation`, local
+test overrides, or generated validation data. The host creates the Grafana admin
+password with `openssl rand`, sets it to mode 0600, and never prints it. Store or
+retrieve that password only through a private operator session; it is never sent
+from GitHub Actions.
+
+The observability Compose project has its own Prometheus, Loki, Tempo, and Grafana
+named volumes. The Collector's OTLP/HTTP port 4318 and Grafana's UI port 3000 are
+bound to the EC2 host's loopback address. Prometheus, Loki, and Tempo have no
+published ports. No security-group ingress is needed for these services; leave
+the existing HTTP and SSH rules unchanged. PairRoom reaches the Collector as
+`http://otel-collector:4318` over `pairroom-telemetry`; Prometheus, Loki, Tempo,
+and Grafana use their Compose network.
+
+To use Grafana, start an SSM port forward from the operator machine, replacing
+`INSTANCE_ID` with the development EC2 instance ID:
+
+```powershell
+aws ssm start-session --region us-east-1 --target INSTANCE_ID `
+  --document-name AWS-StartPortForwardingSession `
+  --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'
+```
+
+Then browse to `http://127.0.0.1:3000` and authenticate with the Grafana admin
+account. Do not expose port 3000 or 4318 through a security group or public
+interface. The operator identity needs permission to start and end an SSM session;
+the GitHub deployment role does not need that permission.
+
+The helper passes the currently deployed image digest as `service.version`,
+`deployment.environment.name=development`, and service name `pairroom-backend`.
+It starts the observability Compose project before updating only the PairRoom app
+container. The app override joins `pairroom-telemetry` and sets
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`. If observability startup
+fails, the app update does not run. If the app update or verification fails, the
+helper restores the previous app override and attempts an app-only rollback. It
+leaves the observability containers and volumes available for diagnosis.
+
+PostgreSQL remains in the existing `pairroom` Compose project on its unchanged
+`pairroom_postgres-data` volume. The deployment does not run database commands,
+`docker compose down`, or any volume deletion. To roll back application telemetry,
+run the deployment helper for the previous immutable digest with
+`PAIRROOM_DEPLOY_ENVIRONMENT` unset; this restores an image-only PairRoom override.
+Then stop or remove only the `pairroom-observability` Compose project. Use `down`
+without `--volumes` to keep its telemetry data; deleting telemetry volumes is a
+separate cleanup decision. Never run `docker compose down --volumes` on the
+PairRoom project.
+
+Validation after the approved AWS deployment checks each container, confirms no
+new public listeners or security-group rules, and verifies the app image digest
+and resource labels. Harmless `/health` requests exercise Prometheus metrics,
+Loki structured logs, and Tempo traces without creating database records. Grafana
+must show all three sources and trace/log correlation. The PostgreSQL container
+identity, health, and named volume are checked before and after deployment; normal
+observability restart checks persistence without deleting volumes.
 
 ## Validation
 

@@ -25,6 +25,156 @@ class DeploymentTests(unittest.TestCase):
         commands = deploy.deployment_commands('ghcr.io/org/app@sha256:' + 'a' * 64)
         self.assertIn('docker compose up -d --no-deps --wait --wait-timeout 300 app', '\n'.join(commands))
 
+    def test_production_and_unspecified_deployments_remain_image_only(self):
+        image = 'ghcr.io/org/app@sha256:' + 'a' * 64
+        for environment in (None, 'production'):
+            with self.subTest(environment=environment):
+                commands = deploy.deployment_commands(image, environment=environment)
+                combined = '\n'.join(commands)
+                self.assertIn(f'docker pull {image}', combined)
+                self.assertIn('docker compose up -d --no-deps --wait --wait-timeout 300 app', combined)
+                self.assertNotIn('pairroom-observability', combined)
+                self.assertNotIn('PAIRROOM_TELEMETRY_ENABLED', combined)
+                self.assertNotIn('OTEL_', combined)
+
+    def test_only_development_workflow_sets_observability_opt_in(self):
+        repository = Path(__file__).resolve().parents[4]
+        development = (repository / '.github/workflows/cicd.yaml').read_text(encoding='utf-8')
+        production = (repository / '.github/workflows/promote-production.yaml').read_text(encoding='utf-8')
+        deploy_step = development.split('      - name: Deploy and verify public health endpoint', 1)[1]
+        deploy_step = deploy_step.split('      - name: Record verified development version', 1)[0]
+        self.assertIn('PAIRROOM_DEPLOY_ENVIRONMENT: development', deploy_step)
+        self.assertNotIn('PAIRROOM_DEPLOY_ENVIRONMENT', production)
+
+    def test_rejects_unknown_deployment_environment(self):
+        with self.assertRaises(ValueError):
+            deploy.deployment_commands('ghcr.io/org/app@sha256:' + 'a' * 64,
+                                       environment='staging')
+
+    def test_development_config_uses_digest_and_private_docker_network(self):
+        image = 'ghcr.io/org/app@sha256:' + 'a' * 64
+        override = deploy._development_override(image)
+        self.assertIn(f'service.version=sha256:{"a" * 64}', override)
+        self.assertIn('deployment.environment.name=development', override)
+        self.assertIn('OTEL_SERVICE_NAME: "pairroom-backend"', override)
+        self.assertIn('OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"', override)
+        self.assertIn('      - telemetry\n', override)
+        self.assertIn('name: pairroom-telemetry', override)
+        self.assertNotIn('ports:', override)
+
+    def test_development_starts_only_committed_observability_config_before_app(self):
+        image = 'ghcr.io/org/app@sha256:' + 'a' * 64
+        commands = deploy.deployment_commands(image, environment='development')
+        combined = '\n'.join(commands)
+        obs_start = commands.index('docker compose up -d --wait --wait-timeout 180')
+        app_update = next(index for index, command in enumerate(commands)
+                          if 'docker compose up -d --no-deps --wait --wait-timeout 300 app' in command)
+        self.assertLess(obs_start, app_update)
+        self.assertIn('openssl rand -hex 32 > .secrets/grafana-admin-password.tmp', combined)
+        self.assertIn('chmod 600 .secrets/grafana-admin-password.tmp', combined)
+        self.assertNotIn('cat .secrets/grafana-admin-password', combined)
+        self.assertIn('docker pull ' + image, combined)
+        self.assertIn('host_memory_kib" -ge 3500000', combined)
+        self.assertIn('docker compose ps -q app', combined)
+        self.assertIn('docker compose up -d --no-deps --wait --wait-timeout 300 app', combined)
+        self.assertIn('compose.override.yaml.previous', combined)
+        self.assertIn('rollback_deployment EXIT', combined)
+        self.assertNotIn('docker compose down', combined)
+        self.assertNotIn('--volumes', combined)
+        self.assertNotIn('postgres-data', combined)
+        self.assertNotIn('docker compose up -d --no-deps --wait --wait-timeout 300 postgres', combined)
+        self.assertLessEqual(max(map(len, commands)), 4096)
+
+    def test_observability_startup_failure_stops_before_pairroom_update(self):
+        bash = ('C:/Program Files/Git/bin/bash.exe' if os.name == 'nt' else shutil.which('bash'))
+        self.assertTrue(bash and Path(bash).exists(), 'Bash is required for startup rollback validation')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'source'
+            for relative in deploy.OBSERVABILITY_FILES:
+                source = root / relative
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text('fixture: true\n', encoding='utf-8')
+            host = './host'
+            commands = deploy._observability_stack_commands(root)
+            script = '\n'.join(commands).replace('/opt/pairroom-observability', host)
+            stubs = r'''
+set -eu
+export PATH=/usr/bin:/bin:$PATH
+install() {
+  local target
+  for target in "$@"; do :; done
+  mkdir -p "$target"
+}
+openssl() { printf 'temporary-test-password'; }
+docker() {
+  printf 'docker %s\n' "$*" >> calls
+  if [ "$1" = compose ] && [ "$2" = up ]; then return 1; fi
+}
+'''
+            result = subprocess.run([bash, '-c', stubs + '\n' + script], cwd=temp,
+                                    capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            calls_path = Path(temp) / 'host' / 'calls'
+            self.assertTrue(calls_path.exists(), result.stderr)
+            calls = calls_path.read_text(encoding='utf-8')
+            self.assertIn('docker compose config --quiet', calls)
+            self.assertIn('docker compose up -d --wait --wait-timeout 180', calls)
+            self.assertNotIn('app', calls)
+            self.assertNotIn('postgres', calls)
+            self.assertNotIn('down', calls)
+            self.assertNotIn('temporary-test-password', result.stdout + result.stderr)
+
+    def test_only_observability_allowlist_is_copied_and_no_local_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for relative in deploy.OBSERVABILITY_FILES:
+                source = root / relative
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(f'fixture: {relative}\n', encoding='utf-8')
+            commands = deploy._observability_stack_commands(root)
+        combined = '\n'.join(commands)
+        for relative in deploy.OBSERVABILITY_FILES:
+            self.assertIn('/opt/pairroom-observability/' + relative, combined)
+        for excluded in ('.env', '.validation', 'verify.py', 'compose.pairroom.yaml'):
+            self.assertNotIn(excluded, combined)
+        self.assertLessEqual(max(map(len, commands)), 4096)
+
+    def test_failed_app_update_restores_previous_override_without_touching_database(self):
+        image = 'ghcr.io/org/app@sha256:' + 'a' * 64
+        commands = deploy._development_app_update_commands(image)
+        bash = ('C:/Program Files/Git/bin/bash.exe' if os.name == 'nt' else shutil.which('bash'))
+        self.assertTrue(bash and Path(bash).exists(), 'Bash is required for rollback validation')
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / 'compose.override.yaml').write_text('old-image: preserved\n', encoding='utf-8')
+            stubs = r'''
+set -eu
+export PATH=/usr/bin:/bin:$PATH
+systemctl() { :; }
+docker() {
+  printf 'docker %s\n' "$*" >> calls
+  if [ "$1" = compose ] && [ "$2" = ps ]; then echo app-id; return 0; fi
+  if [ "$1" = compose ] && [ "$2" = up ]; then
+    count=0
+    [ ! -f up-count ] || count=$(cat up-count)
+    count=$((count + 1))
+    printf '%s' "$count" > up-count
+    [ "$count" -ne 1 ]
+    return
+  fi
+  if [ "$1" = inspect ]; then printf '%s\n' 'ghcr.io/org/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; fi
+}
+'''
+            result = subprocess.run([bash, '-c', stubs + '\n'.join(commands)],
+                                    cwd=folder, capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((folder / 'compose.override.yaml').read_text(encoding='utf-8'),
+                             'old-image: preserved\n')
+            calls = (folder / 'calls').read_text(encoding='utf-8')
+            self.assertIn('docker compose up -d --no-deps --wait --wait-timeout 300 app', calls)
+            self.assertNotIn('postgres', calls)
+            self.assertFalse((folder / 'compose.override.yaml.previous').exists())
+
     @patch.object(deploy.time, 'sleep')
     def test_waits_for_ssm_eventual_consistency_and_completion(self, sleep):
         missing = subprocess.CalledProcessError(1, 'aws', stderr='InvocationDoesNotExist')

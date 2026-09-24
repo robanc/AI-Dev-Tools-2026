@@ -9,10 +9,15 @@ restart persistence), and runs the two-browser end-to-end suite against port
 Successful `main` runs save the tested image as a short-lived workflow artifact.
 The development job publishes that image to GHCR without rebuilding, assumes an
 AWS role using OIDC, and uses SSM Run Command to update the existing EC2 host.
-It waits for Compose health checks, checks the running image digest, and polls
-the current public IP's `/health` for HTTP 200 and exactly `{"status":"ok"}`.
-An SSM failure or health timeout fails the job. Development and production use
-separate concurrency groups; active deployments are not automatically cancelled.
+For development only, the deployment helper installs and starts the committed
+observability Compose project before updating PairRoom. It passes the immutable
+image digest as `service.version`, sets the `development` environment attributes,
+and connects PairRoom to the Collector over the private `pairroom-telemetry`
+Docker network. It then updates only the app service, waits for its Compose health
+check, verifies the image and telemetry configuration, and polls the current
+public IP's `/health` for HTTP 200 and exactly `{"status":"ok"}`. An SSM failure
+or health timeout fails the job. Development and production use separate
+concurrency groups; active deployments are not automatically cancelled.
 
 ## Development and production
 
@@ -50,6 +55,13 @@ limits. It records schema version, repository, environment, workflow path, run I
 attempt, commit SHA and immutable GHCR digest. Upload failure fails the CI run.
 The large tested-image artifact still expires after one day; promotion does not
 need it because the image is already in GHCR.
+
+The development deploy step explicitly sets `PAIRROOM_DEPLOY_ENVIRONMENT=development`.
+The shared helper enables telemetry only for that exact value. The manually
+dispatched production workflow does not set it, so its deployment remains the
+existing immutable-image-only update and does not start the observability stack or
+enable telemetry. Do not enable this mode in the production workflow as part of
+the development observability change.
 
 `.github/workflows/promote-production.yaml` has only `workflow_dispatch`. From
 Actions, select **Promote development to production**, choose **main**, and supply
@@ -205,10 +217,25 @@ stack merely to rename it or adopt these workflows.
 
 CI writes `/opt/pairroom/compose.override.yaml` with an immutable image digest.
 Compose automatically loads this alongside `compose.yaml`, including at boot.
-The database container, `.env`, and volume are preserved. The public endpoint
-remains HTTP as described in the AWS guide. Health includes database connectivity;
-it does not establish production WebSocket behavior. Application updates briefly
-interrupt connections; clients reconnect using their existing links.
+For development, the override also sets the telemetry environment and joins the
+app to `pairroom-telemetry`. The separate observability project uses its own
+named volumes; its five UI/storage services have no public listeners. Collector
+OTLP and Grafana are bound to host loopback only. Open Grafana through an SSM
+port-forwarding session; do not add security-group ingress for ports 3000 or 4318.
+The Grafana admin password is generated on the EC2 host, stored in the ignored
+`.secrets` path with mode 0600, and never printed by deployment commands.
+
+The database container, `/opt/pairroom/.env`, and `pairroom_postgres-data` volume
+are preserved. The deployment does not run `down` or any database command; the
+app update uses `docker compose up -d --no-deps ... app`. Do not use
+`docker compose down --volumes` against the PairRoom project. The observability
+project can be stopped independently without deleting its named volumes. The
+development instance must be resized to `t3.medium` before enabling this stack;
+the existing `pairroom-course` template already permits that parameter value.
+The resize is a separate approved CloudFormation operation and causes an
+interruption. The public endpoint remains HTTP as described in the AWS guide.
+Application updates briefly interrupt connections; clients reconnect using
+their existing links.
 
 Failed health validation does not automatically roll back or delete resources.
 To roll production back, manually promote an earlier successful development run
