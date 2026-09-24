@@ -120,8 +120,6 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: pairroom-${{ github.run_id }}
       - name: Deploy and verify public health endpoint
-        env:
-          PAIRROOM_DEPLOY_ENVIRONMENT: development
         run: python deploy/aws/deploy.py
       - name: Record verified development version
         run: python deploy/aws/promote.py record --output /tmp/promotion.json

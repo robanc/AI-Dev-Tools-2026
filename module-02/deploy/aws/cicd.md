@@ -9,15 +9,14 @@ restart persistence), and runs the two-browser end-to-end suite against port
 Successful `main` runs save the tested image as a short-lived workflow artifact.
 The development job publishes that image to GHCR without rebuilding, assumes an
 AWS role using OIDC, and uses SSM Run Command to update the existing EC2 host.
-For development only, the deployment helper installs and starts the committed
-observability Compose project before updating PairRoom. It passes the immutable
-image digest as `service.version`, sets the `development` environment attributes,
-and connects PairRoom to the Collector over the private `pairroom-telemetry`
-Docker network. It then updates only the app service, waits for its Compose health
-check, verifies the image and telemetry configuration, and polls the current
-public IP's `/health` for HTTP 200 and exactly `{"status":"ok"}`. An SSM failure
-or health timeout fails the job. Development and production use separate
-concurrency groups; active deployments are not automatically cancelled.
+The current AWS development host is a `t3.small` with 2 GiB RAM, and safe capacity
+for the full observability stack has not been demonstrated. Normal CI therefore
+uses the helper's image-only path: it updates only PairRoom, leaves telemetry
+disabled, and does not start the observability project. It verifies the image and
+polls the current public IP's `/health` for HTTP 200 and exactly
+`{"status":"ok"}`. An SSM failure or health timeout fails the job. Development
+and production use separate concurrency groups; active deployments are not
+automatically cancelled.
 
 ## Development and production
 
@@ -56,12 +55,13 @@ attempt, commit SHA and immutable GHCR digest. Upload failure fails the CI run.
 The large tested-image artifact still expires after one day; promotion does not
 need it because the image is already in GHCR.
 
-The development deploy step explicitly sets `PAIRROOM_DEPLOY_ENVIRONMENT=development`.
-The shared helper enables telemetry only for that exact value. The manually
-dispatched production workflow does not set it, so its deployment remains the
-existing immutable-image-only update and does not start the observability stack or
-enable telemetry. Do not enable this mode in the production workflow as part of
-the development observability change.
+The shared helper retains an explicit future observability opt-in:
+`PAIRROOM_DEPLOY_ENVIRONMENT=development`. Only that exact value installs the
+stack and enables telemetry, and the existing 3,500,000 KiB host-memory guard
+remains active. Do not set this value in normal CI while the `t3.small` capacity
+is unproven. The manually dispatched production workflow does not set it and
+continues its immutable-image-only update without the observability stack or
+telemetry.
 
 `.github/workflows/promote-production.yaml` has only `workflow_dispatch`. From
 Actions, select **Promote development to production**, choose **main**, and supply
@@ -217,7 +217,9 @@ stack merely to rename it or adopt these workflows.
 
 CI writes `/opt/pairroom/compose.override.yaml` with an immutable image digest.
 Compose automatically loads this alongside `compose.yaml`, including at boot.
-For development, the override also sets the telemetry environment and joins the
+Normal development and production updates remain image-only. If development
+observability is explicitly enabled in a future change after host capacity is
+validated, the override will also set telemetry resource attributes and join the
 app to `pairroom-telemetry`. The separate observability project uses its own
 named volumes; its five UI/storage services have no public listeners. Collector
 OTLP and Grafana are bound to host loopback only. Open Grafana through an SSM
@@ -228,12 +230,10 @@ The Grafana admin password is generated on the EC2 host, stored in the ignored
 The database container, `/opt/pairroom/.env`, and `pairroom_postgres-data` volume
 are preserved. The deployment does not run `down` or any database command; the
 app update uses `docker compose up -d --no-deps ... app`. Do not use
-`docker compose down --volumes` against the PairRoom project. The observability
-project can be stopped independently without deleting its named volumes. The
-development instance must be resized to `t3.medium` before enabling this stack;
-the existing `pairroom-course` template already permits that parameter value.
-The resize is a separate approved CloudFormation operation and causes an
-interruption. The public endpoint remains HTTP as described in the AWS guide.
+`docker compose down --volumes` against the PairRoom project. When remote
+observability is later authorized and capacity is established, its project can
+be stopped independently without deleting its named volumes. The public endpoint
+remains HTTP as described in the AWS guide.
 Application updates briefly interrupt connections; clients reconnect using
 their existing links.
 

@@ -37,14 +37,23 @@ class DeploymentTests(unittest.TestCase):
                 self.assertNotIn('PAIRROOM_TELEMETRY_ENABLED', combined)
                 self.assertNotIn('OTEL_', combined)
 
-    def test_only_development_workflow_sets_observability_opt_in(self):
+    def test_normal_ci_uses_image_only_deployment_without_telemetry(self):
         repository = Path(__file__).resolve().parents[4]
         development = (repository / '.github/workflows/cicd.yaml').read_text(encoding='utf-8')
         production = (repository / '.github/workflows/promote-production.yaml').read_text(encoding='utf-8')
         deploy_step = development.split('      - name: Deploy and verify public health endpoint', 1)[1]
         deploy_step = deploy_step.split('      - name: Record verified development version', 1)[0]
-        self.assertIn('PAIRROOM_DEPLOY_ENVIRONMENT: development', deploy_step)
+        self.assertNotIn('PAIRROOM_DEPLOY_ENVIRONMENT', deploy_step)
         self.assertNotIn('PAIRROOM_DEPLOY_ENVIRONMENT', production)
+
+        image = 'ghcr.io/org/app@sha256:' + 'a' * 64
+        commands = deploy.deployment_commands(image)
+        combined = '\n'.join(commands)
+        self.assertIn(f'docker pull {image}', combined)
+        self.assertIn('docker compose up -d --no-deps --wait --wait-timeout 300 app', combined)
+        self.assertNotIn('pairroom-observability', combined)
+        self.assertNotIn('PAIRROOM_TELEMETRY_ENABLED', combined)
+        self.assertNotIn('OTEL_', combined)
 
     def test_rejects_unknown_deployment_environment(self):
         with self.assertRaises(ValueError):
@@ -75,6 +84,10 @@ class DeploymentTests(unittest.TestCase):
         self.assertNotIn('cat .secrets/grafana-admin-password', combined)
         self.assertIn('docker pull ' + image, combined)
         self.assertIn('host_memory_kib" -ge 3500000', combined)
+        self.assertIn('Development observability requires a 4 GiB host', combined)
+        guard = combined.index('test "$host_memory_kib" -ge 3500000')
+        self.assertLess(guard, combined.index('docker pull ' + image))
+        self.assertLess(guard, combined.index('docker compose up -d --wait --wait-timeout 180'))
         self.assertIn('docker compose ps -q app', combined)
         self.assertIn('docker compose up -d --no-deps --wait --wait-timeout 300 app', combined)
         self.assertIn('compose.override.yaml.previous', combined)
