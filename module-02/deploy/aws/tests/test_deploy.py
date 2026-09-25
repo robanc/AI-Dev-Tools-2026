@@ -138,6 +138,8 @@ docker() {
             self.assertNotIn('temporary-test-password', result.stdout + result.stderr)
 
     def test_only_observability_allowlist_is_copied_and_no_local_artifacts(self):
+        self.assertIn('alerts.yaml', deploy.OBSERVABILITY_FILES)
+        self.assertIn('alerts.test.yaml', deploy.OBSERVABILITY_FILES)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             for relative in deploy.OBSERVABILITY_FILES:

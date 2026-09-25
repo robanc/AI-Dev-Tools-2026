@@ -1,0 +1,58 @@
+rule_files:
+  - /etc/prometheus/alerts.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: healthy-session-traffic-ignores-failing-health-probes
+    interval: 1m
+    input_series:
+      - series: 'pairroom_http_requests_total{service_name="pairroom-backend",deployment_environment_name="local",service_version="observability-local",http_route="/sessions",http_response_status_code="200"}'
+        values: '0+100x10'
+      - series: 'pairroom_http_requests_total{service_name="pairroom-backend",deployment_environment_name="local",service_version="observability-local",http_route="/health",http_response_status_code="503"}'
+        values: '0+100x10'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: PairRoomElevatedServerErrorRate
+        exp_alerts: []
+
+  - name: fewer-than-three-user-facing-errors-do-not-fire
+    interval: 1m
+    input_series:
+      - series: 'pairroom_http_requests_total{service_name="pairroom-backend",deployment_environment_name="local",service_version="observability-local",http_route="/sessions",http_response_status_code="500"}'
+        values: '0 1 2 2 2 2'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PairRoomElevatedServerErrorRate
+        exp_alerts: []
+
+  - name: sustained-session-server-errors-fire-with-action-context
+    interval: 1m
+    input_series:
+      - series: 'pairroom_http_requests_total{service_name="pairroom-backend",deployment_environment_name="local",service_version="observability-local",http_route="/sessions",http_response_status_code="200"}'
+        values: '0+100x10'
+      - series: 'pairroom_http_requests_total{service_name="pairroom-backend",deployment_environment_name="local",service_version="observability-local",http_route="/sessions",http_response_status_code="500"}'
+        values: '0+10x10'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PairRoomElevatedServerErrorRate
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: PairRoomElevatedServerErrorRate
+        exp_alerts:
+          - exp_labels:
+              alertname: PairRoomElevatedServerErrorRate
+              service_name: pairroom-backend
+              deployment_environment_name: local
+              service_version: observability-local
+              http_route: /sessions
+              severity: warning
+            exp_annotations:
+              summary: PairRoom is returning HTTP 5xx errors on /sessions
+              description: >-
+                pairroom-backend version observability-local in local has
+                returned more than 5% HTTP 5xx responses on /sessions with at
+                least three failures in five minutes. Inspect correlated Loki
+                logs for this route and version, follow their trace_id values
+                into Tempo, verify the deployed image version, and check
+                PairRoom service health.

@@ -1,0 +1,28 @@
+version: 1
+default: deny
+model_capabilities:
+  shell: false
+  aws: false
+  docker: false
+  github: false
+  deployment: false
+  unrestricted_filesystem: false
+actions:
+  collect_evidence:
+    decision: allow
+    enforcement: responder.py performs fixed HTTP GET queries only against loopback Prometheus, Loki, and Tempo endpoints
+  investigate:
+    decision: allow
+    enforcement: analysis of sanitized evidence only; no tools
+  rollback:
+    decision: require_operator
+    enforcement: explicit human authorization and execution through the approved release process; responder has no execution capability
+  escalate:
+    decision: allow
+    enforcement: produce escalation packet; no external message is sent automatically
+unknown_action:
+  decision: deny
+  enforcement: deterministic policy_decision in responder.py
+data_boundaries:
+  allowed: ["aggregated HTTP metrics", "allowlisted structured event names", "validated trace IDs", "service/environment/version/route labels"]
+  excluded: ["credentials", "tokens", "session IDs", "request bodies", "cookies", "query strings", "raw exception details", "arbitrary log lines"]

@@ -140,6 +140,38 @@ log entry's `trace_id` to open its Tempo trace. Prometheus labels and Loki resou
 labels include the service, environment and version. Grafana's provisioned
 datasources link Loki log trace IDs to Tempo.
 
+### User-impact alert
+
+Prometheus loads `alerts.yaml` and evaluates `PairRoomElevatedServerErrorRate`
+every 15 seconds. It fires per service, environment, deployed version, and route
+when more than 5% of non-`/health` HTTP requests return 5xx over five minutes,
+with at least three 5xx responses in that window, and the condition stays true
+for two minutes. This uses the existing `pairroom_http_requests_total` counter;
+it does not alert on host utilization or health probes.
+
+The alert labels include `service_name`, `deployment_environment_name`,
+`service_version`, `http_route`, and `severity=warning`. Its summary and
+description identify the affected route and release and direct the responder to
+inspect the matching Loki logs, follow their `trace_id` values into Tempo, verify
+the deployed version, and check PairRoom service health. Alert state and its
+annotations are available through Prometheus; no external notification service
+or Alertmanager is configured.
+
+Validate and test the rule locally from the repository root:
+
+```powershell
+docker compose -f module-02/observability/compose.yaml exec -T prometheus promtool check rules /etc/prometheus/alerts.yaml
+docker compose -f module-02/observability/compose.yaml run --rm --no-deps `
+  -v "${PWD}/module-02/observability/alerts.test.yaml:/tmp/alerts.test.yaml:ro" `
+  --entrypoint promtool prometheus test rules /tmp/alerts.test.yaml
+```
+
+The synthetic rule tests prove ordinary session traffic plus failing `/health`
+probes do not fire the alert, while sustained 5xx failures on a user route do.
+They also check the alert's route, service, environment, version, severity, and
+actionable annotations. These checks use the pinned local Prometheus image and do
+not enable or deploy observability to AWS.
+
 `verify.py` runs the end-to-end checks against only this dedicated test project,
 including a normal observability project restart. Run it from the repository root:
 

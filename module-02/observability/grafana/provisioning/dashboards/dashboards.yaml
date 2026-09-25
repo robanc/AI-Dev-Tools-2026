@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: PairRoom
+    orgId: 1
+    folder: PairRoom
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

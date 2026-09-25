@@ -1,0 +1,55 @@
+{
+  "incident_id": "INC-2026-001",
+  "deployed_version": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "user_impact": {
+    "summary": "A short burst of server errors affected session creation; /health remained available.",
+    "window": "5m",
+    "http_5xx_count": 4,
+    "request_count": 52
+  },
+  "evidence": {
+    "metrics": [{
+      "service_name": "pairroom-backend",
+      "deployment_environment_name": "development",
+      "service_version": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "http_route": "/sessions",
+      "http_response_status_code": "500",
+      "request_count_5m": 4
+    }],
+    "logs": [{
+      "event": "session.creation.failed",
+      "service_name": "pairroom-backend",
+      "deployment_environment_name": "development",
+      "service_version": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "http_route": "/sessions",
+      "http_response_status_code": ""
+    }],
+    "traces": [{"trace_id": "0123456789abcdef0123456789abcdef", "status": "retrieved"}],
+    "collection_status": "complete",
+    "collection_errors": []
+  },
+  "model": {
+    "provider": "not-run-example",
+    "model_id": "sanitized-fixture",
+    "configuration_ref": "incident-response/responder-task.md"
+  },
+  "proposed_action": {
+    "type": "investigate",
+    "summary": "Compare the failures with the deployed version and inspect the correlated trace.",
+    "reasoning_summary": "The sample contains a small number of failures on session creation and no health-route failures."
+  },
+  "policy_decision": {
+    "decision": "allow",
+    "reason": "read-only evidence or analysis action"
+  },
+  "recovery_verification": {
+    "status": "not_attempted",
+    "checks": [],
+    "verified_at": null
+  },
+  "escalation": {
+    "required": false,
+    "status": "none",
+    "reason": "Sanitized illustrative fixture; no live incident or private runtime data."
+  }
+}

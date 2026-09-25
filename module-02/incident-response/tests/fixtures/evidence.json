@@ -1,0 +1,16 @@
+{
+  "data": {
+    "result": [
+      {
+        "metric": {
+          "service_name": "pairroom-backend",
+          "deployment_environment_name": "development",
+          "service_version": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "http_route": "/sessions",
+          "http_response_status_code": "500"
+        },
+        "value": ["0", "4"]
+      }
+    ]
+  }
+}

@@ -14,6 +14,8 @@ OBSERVABILITY_FILES = (
     'compose.yaml',
     'collector.yaml',
     'prometheus.yaml',
+    'alerts.yaml',
+    'alerts.test.yaml',
     'loki.yaml',
     'tempo.yaml',
     'grafana/provisioning/datasources/datasources.yaml',

@@ -1,0 +1,41 @@
+groups:
+  - name: pairroom.user-impact
+    rules:
+      - alert: PairRoomElevatedServerErrorRate
+        expr: |
+          (
+            sum by (service_name, deployment_environment_name, service_version, http_route) (
+              rate(pairroom_http_requests_total{
+                service_name="pairroom-backend",
+                http_route!="/health",
+                http_response_status_code=~"5.."
+              }[5m])
+            )
+            /
+            sum by (service_name, deployment_environment_name, service_version, http_route) (
+              rate(pairroom_http_requests_total{
+                service_name="pairroom-backend",
+                http_route!="/health"
+              }[5m])
+            )
+          ) > 0.05
+          and
+          sum by (service_name, deployment_environment_name, service_version, http_route) (
+            increase(pairroom_http_requests_total{
+              service_name="pairroom-backend",
+              http_route!="/health",
+              http_response_status_code=~"5.."
+            }[5m])
+          ) >= 3
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PairRoom is returning HTTP 5xx errors on {{ $labels.http_route }}"
+          description: >-
+            {{ $labels.service_name }} version {{ $labels.service_version }} in
+            {{ $labels.deployment_environment_name }} has returned more than 5%
+            HTTP 5xx responses on {{ $labels.http_route }} with at least three
+            failures in five minutes. Inspect correlated Loki logs for this route
+            and version, follow their trace_id values into Tempo, verify the
+            deployed image version, and check PairRoom service health.

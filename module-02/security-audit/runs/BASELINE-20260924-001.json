@@ -1,0 +1,115 @@
+{
+  "run_id": "AUDIT-20260924-001",
+  "run_kind": "sanitized_baseline",
+  "live_audit": false,
+  "started_at": "2026-09-24T23:43:54Z",
+  "scope": {
+    "target": "Module 4 PairRoom incident responder boundary",
+    "files": [
+      "module-02/incident-response/responder.py",
+      "module-02/incident-response/autonomy-policy.yaml",
+      "module-02/incident-response/response.schema.json",
+      "module-02/incident-response/collect-evidence.sh",
+      "module-02/incident-response/responder-task.md",
+      "module-02/incident-response/runbooks/rollback.sh",
+      "module-02/incident-response/runbooks/verify-recovery.sh",
+      "module-02/incident-response/incidents/INC-2026-001.json"
+    ],
+    "limitations": [
+      "This is a local sanitized baseline, not a live production audit.",
+      "Semgrep is not installed; the repository-owned scanner applies only its documented focused rules.",
+      "No model runner is integrated; model review here is an analysis of repository source and scanner output.",
+      "No human reviewer has dispositioned findings; all dispositions are explicitly pending.",
+      "No AWS, GitHub, Docker, production, or running-container access was used."
+    ]
+  },
+  "provenance": {
+    "repository_state": "Module 4 Step 1 incident-response files in local working tree; no source revision was asserted.",
+    "scanner_source": "module-02/security-audit/scan_responder.py (version 1.0.0)",
+    "policy_source": "module-02/incident-response/autonomy-policy.yaml and responder.py",
+    "model_provenance": "OpenAI Codex using GPT-6 family; exact serving build and request configuration are not exposed to this repository run. Review instructions: module-02/incident-response/responder-task.md."
+  },
+  "deterministic_scanner": {
+    "stage": "deterministic_scanner",
+    "tool": "pairroom-responder-rule-scanner",
+    "version": "1.0.0",
+    "command": "python module-02/security-audit/scan_responder.py",
+    "status": "completed",
+    "checks": [
+      {"rule_id": "RESP-NO-SHELL", "result": "pass", "summary": "Responder implementation contains no shell/process execution primitive."},
+      {"rule_id": "RESP-LOOPBACK-ONLY", "result": "pass", "summary": "Evidence base URLs are restricted to loopback hosts."},
+      {"rule_id": "RESP-NO-REDIRECTS", "result": "pass", "summary": "Evidence HTTP redirects are rejected."},
+      {"rule_id": "RESP-OUTPUT-SCHEMA", "result": "pass", "summary": "Responder output is checked against the JSON schema."},
+      {"rule_id": "RESP-ROLLBACK-NO-EXEC", "result": "pass", "summary": "Rollback helper records authorization but executes no deployment."}
+    ],
+    "findings": [
+      {
+        "finding_id": "AUD-RESP-001",
+        "severity": "medium",
+        "title": "CLI operator-authorization flag is not proof of approval",
+        "description": "The policy CLI can label rollback as operator_authorized from a boolean argument; it does not validate an approval record. This CLI does not itself deploy, and model output validation rejects the claim, but the label can be misleading.",
+        "recommendation": "Remove the flag or require a verifiable operator approval artifact before emitting operator_authorized.",
+        "source_rule": "RESP-OPERATOR-AUTH-EVIDENCE",
+        "path": "incident-response/responder.py",
+        "line": 242
+      }
+    ]
+  },
+  "model_review": {
+    "stage": "model_review",
+    "status": "completed",
+    "provider": "OpenAI Codex",
+    "model_id": "GPT-6 family; exact serving build unavailable",
+    "configuration_ref": "module-02/incident-response/responder-task.md",
+    "analysis": [
+      "The responder implementation contains no shell, AWS, Docker, GitHub, or deployment API integration and loads no credentials. Its evidence transport is limited to fixed GET paths over loopback-only URLs, and redirects are denied.",
+      "Evidence sanitization retains only selected metric labels, three event names, and syntactically validated trace IDs; Tempo response bodies are discarded. This materially reduces telemetry exposure.",
+      "The response schema rejects additional evidence keys and the validator recomputes policy, but free-text summary and reasoning fields can still contain sensitive material if generated or copied into the result. Add content redaction checks before sharing or storing model output.",
+      "The model adapter is not implemented, so no runtime tool configuration, provider request metadata, or credentials boundary can yet be independently inspected. The current prompt specifies no tools; future integrations need an auditable no-tool configuration.",
+      "Recovery verification currently checks only local /health. It does not confirm the target deployed digest, error-rate recovery, or telemetry pipeline recovery; treat its result as a narrow health check rather than complete incident recovery."
+    ],
+    "findings": [
+      {
+        "finding_id": "AUD-RESP-002",
+        "severity": "medium",
+        "title": "Free-text responder output is not content-scanned",
+        "description": "The JSON schema limits shape and length, but summary, reasoning, policy rationale, and escalation text can contain arbitrary strings. Schema validity alone does not prevent accidental secret or private-data inclusion.",
+        "recommendation": "Add a conservative output redaction/secret scan and require human review before retaining or sharing responder output."
+      },
+      {
+        "finding_id": "AUD-RESP-003",
+        "severity": "low",
+        "title": "Loopback endpoint overrides allow arbitrary local ports",
+        "description": "Evidence URLs reject remote hosts and credentials, but environment overrides can target any loopback port. Fixed GET paths and redirect denial limit exposure, though a local unrelated service could receive the query.",
+        "recommendation": "Restrict service URLs to expected ports or use an explicitly managed local forwarding configuration with documented ownership."
+      },
+      {
+        "finding_id": "AUD-RESP-004",
+        "severity": "low",
+        "title": "Recovery verification proves only local health response",
+        "description": "The recovery helper checks the local /health JSON response but does not validate the deployed version or confirm user-impact metrics have recovered.",
+        "recommendation": "When extending recovery verification, add read-only checks for the expected immutable version and alert recovery; keep remote/deployment credentials out of the responder."
+      },
+      {
+        "finding_id": "AUD-RESP-005",
+        "severity": "informational",
+        "title": "Model/tool provenance is not runtime-attested",
+        "description": "The model adapter is not integrated. Current model identity/configuration fields are documentation and audit-record values rather than runtime-attested provider metadata.",
+        "recommendation": "If an adapter is added, capture provider/model version, prompt/config digest, and tool capability configuration from the invoking system, then human-validate the record."
+      }
+    ]
+  },
+  "human_validation": {
+    "stage": "human_validation",
+    "status": "pending",
+    "reviewer": null,
+    "dispositions": [
+      {"finding_id": "AUD-RESP-001", "disposition": "pending", "rationale": "Awaiting named project-owner disposition; no human approval is claimed.", "reviewer": null},
+      {"finding_id": "AUD-RESP-002", "disposition": "pending", "rationale": "Awaiting named project-owner disposition; no human approval is claimed.", "reviewer": null},
+      {"finding_id": "AUD-RESP-003", "disposition": "pending", "rationale": "Awaiting named project-owner disposition; no human approval is claimed.", "reviewer": null},
+      {"finding_id": "AUD-RESP-004", "disposition": "pending", "rationale": "Awaiting named project-owner disposition; no human approval is claimed.", "reviewer": null},
+      {"finding_id": "AUD-RESP-005", "disposition": "pending", "rationale": "Awaiting named project-owner disposition; no human approval is claimed.", "reviewer": null}
+    ]
+  },
+  "overall_status": "pending_human_validation"
+}

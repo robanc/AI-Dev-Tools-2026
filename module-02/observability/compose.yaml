@@ -27,6 +27,7 @@ services:
       - --storage.tsdb.retention.size=1GB
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yaml:/etc/prometheus/alerts.yaml:ro
       - prometheus-data:/prometheus
     mem_limit: 512m
     cpus: 1.0

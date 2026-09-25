@@ -1,0 +1,160 @@
+{
+  "id": null,
+  "uid": "pairroom-incident",
+  "title": "PairRoom Incident Investigation",
+  "description": "Local PairRoom operations view. /health panels show observed responses only; missing telemetry does not prove service health. Trace IDs in Loki can follow the provisioned Tempo link.",
+  "tags": ["pairroom", "module-4", "incident-response"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-1h", "to": "now"},
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "custom",
+        "query": "local,development",
+        "current": {"selected": false, "text": "local", "value": "local"},
+        "options": [
+          {"selected": true, "text": "local", "value": "local"},
+          {"selected": false, "text": "development", "value": "development"}
+        ],
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "hide": 0,
+        "skipUrlSync": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "HTTP request rate by route",
+      "description": "Requests per second from the PairRoom HTTP request counter; excludes /health.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 10}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "expr": "sum by (http_route) (rate(pairroom_http_requests_total{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\",http_route!=\"/health\"}[$__rate_interval]))", "legendFormat": "{{http_route}}", "instant": false, "range": true}]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP 5xx rate by route",
+      "description": "Server-error responses per second. Compare against the user-impact alert below.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 15}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "expr": "sum by (http_route) (rate(pairroom_http_requests_total{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\",http_route!=\"/health\",http_response_status_code=~\"5..\"}[$__rate_interval]))", "legendFormat": "{{http_route}}", "instant": false, "range": true}]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "HTTP 5xx response ratio",
+      "description": "5xx responses divided by all requests, grouped by route; /health is excluded to match the alert.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 12}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "expr": "sum by (http_route) (rate(pairroom_http_requests_total{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\",http_route!=\"/health\",http_response_status_code=~\"5..\"}[$__rate_interval])) / sum by (http_route) (rate(pairroom_http_requests_total{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\",http_route!=\"/health\"}[$__rate_interval]))", "legendFormat": "{{http_route}}", "instant": false, "range": true}]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "HTTP request latency p95",
+      "description": "95th percentile from the instrumented HTTP server duration histogram; requires histogram buckets to have been scraped.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 12}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\",http_route!=\"/health\"}[$__rate_interval])))", "legendFormat": "{{http_route}}", "instant": false, "range": true}]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Observed /health response counts (5m)",
+      "description": "Counts emitted by requests to /health grouped by returned HTTP status. No recent series means unknown, not healthy or unhealthy.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 16},
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "bars", "lineWidth": 1, "fillOpacity": 35}}, "overrides": []},
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "multi", "sort": "desc"}},
+      "targets": [{"refId": "A", "expr": "sum by (http_response_status_code) (increase(pairroom_http_requests_total{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\",http_route=\"/health\"}[5m]))", "legendFormat": "HTTP {{http_response_status_code}}", "instant": false, "range": true}]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Firing PairRoom user-impact alerts",
+      "description": "Number of active PairRoomElevatedServerErrorRate alert instances in the selected environment. Zero means none are firing in this Prometheus instance.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 4, "x": 8, "y": 16},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+      "options": {"reduceOptions": {"values": false, "calcs": ["lastNotNull"], "fields": ""}, "orientation": "auto", "textMode": "value_and_name", "colorMode": "background", "graphMode": "area", "justifyMode": "center"},
+      "targets": [{"refId": "A", "expr": "sum(ALERTS{alertname=\"PairRoomElevatedServerErrorRate\",alertstate=\"firing\",deployment_environment_name=~\"$environment\"}) or vector(0)", "legendFormat": "Firing alert instances", "instant": true, "range": false}]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Firing alert context",
+      "description": "Active alert series retain service, environment, immutable version, route, and severity labels.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 12, "y": 16},
+      "fieldConfig": {"defaults": {"custom": {"align": "auto", "displayMode": "auto"}}, "overrides": []},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "targets": [{"refId": "A", "expr": "ALERTS{alertname=\"PairRoomElevatedServerErrorRate\",alertstate=\"firing\",deployment_environment_name=~\"$environment\"}", "instant": true, "range": false, "format": "table", "legendFormat": ""}]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Observed deployed versions (last 5m)",
+      "description": "Versions are read from service.version resource labels on actual request-counter series; this is not a deployment inventory.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "gridPos": {"h": 7, "w": 12, "x": 0, "y": 23},
+      "fieldConfig": {"defaults": {"custom": {"align": "auto", "displayMode": "auto"}}, "overrides": []},
+      "options": {"showHeader": true, "cellHeight": "sm", "footer": {"show": false}},
+      "targets": [{"refId": "A", "expr": "sum by (service_name, deployment_environment_name, service_version) (increase(pairroom_http_requests_total{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\"}[5m]))", "instant": true, "range": false, "format": "table", "legendFormat": ""}]
+    },
+    {
+      "id": 9,
+      "type": "logs",
+      "title": "Safe PairRoom event log",
+      "description": "Only the three fixed event names used by the incident responder are selected. Use the TraceID derived link on a log entry to open its Tempo trace when present.",
+      "datasource": {"type": "loki", "uid": "loki"},
+      "gridPos": {"h": 10, "w": 12, "x": 0, "y": 30},
+      "options": {"showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "prettifyLogMessage": false, "enableLogDetails": true, "sortOrder": "Descending"},
+      "targets": [{"refId": "A", "expr": "{service_name=\"pairroom-backend\",deployment_environment_name=~\"$environment\"} |~ \"http.request.completed|session.created|session.creation.failed\"", "queryType": "range", "direction": "backward", "maxLines": 100}]
+    },
+    {
+      "id": 10,
+      "type": "traces",
+      "title": "PairRoom traces",
+      "description": "TraceQL search by service and environment. Use the linked TraceID from the event log to investigate a specific request.",
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "gridPos": {"h": 10, "w": 12, "x": 12, "y": 30},
+      "targets": [{"refId": "A", "datasource": {"type": "tempo", "uid": "tempo"}, "queryType": "traceql", "query": "{ resource.service.name = \"pairroom-backend\" && resource.deployment.environment.name =~ \"$environment\" }", "limit": 50}]
+    }
+  ],
+  "annotationsList": [],
+  "preload": false
+}
